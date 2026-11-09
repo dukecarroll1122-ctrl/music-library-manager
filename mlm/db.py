@@ -43,6 +43,12 @@ CREATE INDEX IF NOT EXISTS ix_history_batch ON history(batch);
 CREATE TABLE IF NOT EXISTS dup_groups(id INTEGER PRIMARY KEY, method TEXT, key TEXT);
 CREATE TABLE IF NOT EXISTS dup_members(group_id INTEGER, track_id INTEGER, keep INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS conversions(id INTEGER PRIMARY KEY, track_id INTEGER, src TEXT, dst TEXT,
+  src_format TEXT, dst_format TEXT, settings TEXT, status TEXT, error TEXT, src_size INTEGER, dst_size INTEGER,
+  started REAL, finished REAL);
+CREATE TABLE IF NOT EXISTS verifications(track_id INTEGER PRIMARY KEY, status TEXT, fp_score REAL,
+  recording_id TEXT, matched_title TEXT, matched_artist TEXT, matched_albums TEXT, notes TEXT, candidates TEXT,
+  size INTEGER, mtime REAL, checked REAL);
 CREATE VIEW IF NOT EXISTS artists AS
   SELECT artist AS name, count(*) AS tracks, count(DISTINCT album) AS albums, sum(size) AS size
   FROM tracks WHERE missing=0 AND artist<>'' GROUP BY artist;

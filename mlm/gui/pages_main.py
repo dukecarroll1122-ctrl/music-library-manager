@@ -200,8 +200,13 @@ class LibraryPage(Page):
         self.outer.addWidget(self.table, 1)
         self.count = W.label("", "muted")
         self.outer.addWidget(W.hbox(self.count, None,
+                                    button("▶ Play", self.play),
                                     button("Reveal in Finder", self.reveal),
                                     button("Inspect", self.inspect),
+                                    button("Convert…", self.convert, tip="Send selected songs to the Audio Converter"),
+                                    button("Convert Albums to MP3…", self.convert_albums,
+                                           tip="Queue every song of the selected songs' albums as MP3, keeping the "
+                                               "artist/album folder structure"),
                                     button("Edit Selected…", self.edit, tip="Batch-edit metadata of selected songs")))
 
     def _fill(self, cb, values):
@@ -278,6 +283,21 @@ class LibraryPage(Page):
     def reveal(self):
         for r in self._sel()[:5]:
             W.reveal(r["path"])
+
+    def play(self):
+        rows = self._sel()
+        if rows:
+            self.app.go("player", rows=rows)
+
+    def convert(self):
+        rows = self._sel()
+        if rows:
+            self.app.go("converter", track_ids=[r["id"] for r in rows])
+
+    def convert_albums(self):
+        rows = self._sel()
+        if rows:
+            self.app.go("converter", track_ids=[r["id"] for r in rows], albums=True, fmt="MP3")
 
     def edit(self):
         rows = self._sel()

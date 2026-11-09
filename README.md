@@ -39,6 +39,9 @@ python3 -m venv .venv
 | **Metadata Inspector** | Songs with issues, a detail panel with all tags, technical info, the issue list and MusicBrainz results. **Check with MusicBrainz** grades each song as Verified / High-confidence / Possible / Needs manual review / No match. **Verify Audio** fully decodes files with ffmpeg to detect corruption. |
 | **Metadata Repair** | Proposed changes from MusicBrainz and your own edits, shown as BEFORE → AFTER. Approve or reject each one, then **Apply Approved Changes**. The **Repair history** tab lists every batch with **Undo**. |
 | **Artwork Manager** | Albums with missing or mixed artwork. Search the Cover Art Archive or choose a file, preview it, then apply to the whole album (optionally only songs without art). Full resolution is kept up to 3000 px. |
+| **Audio Verification** | Checks whether the audio actually matches the tags, using a Chromaprint fingerprint looked up in AcoustID/MusicBrainz. Statuses: Verified match, Likely match, Possible mismatch, Strong mismatch, No fingerprint match, Needs manual review. Runs in the background with pause, resume and cancel. **Play** and **Compare…** send files to the player. |
+| **Music Player** | Plays files from where they are (Qt Multimedia with its FFmpeg backend): MP3, AAC/M4A, ALAC, FLAC, WAV, AIFF, Opus, OGG and more. Queue, seek, volume and artwork. **Compare mode** keeps the playback position when you switch songs, so two versions can be A/B'd. |
+| **Audio Converter** | Makes converted **copies** with FFmpeg. Outputs: MP3 (320/256/192/128 CBR, custom bitrate or VBR V0–V9), AAC, FLAC, WAV, ALAC, OGG, Opus. Sample rate and mono/stereo options. Tags, track/disc numbers, album artist, year and artwork are kept. Batch queue with estimated sizes, per-file progress, cancel, and conversion history. |
 | **Duplicate Finder** | Three methods: identical files (SHA-1), same artist + title + length, and AcoustID fingerprint. Tick the copies to keep; **Move Unticked Copies…** moves the rest to a review folder you choose. Files are never deleted. |
 | **Organization** | Pick a naming template, e.g. `{albumartist}/{album}/{track:02d} - {title}`, preview every move, then apply. Conflicts are skipped and nothing is overwritten. |
 | **Reports** | Inventory, artists, albums, missing metadata, metadata errors, duplicates and audio quality, as CSV or JSON. |
@@ -80,6 +83,37 @@ that isn't plainly healthy or needed a fallback reader.
 Databases created by earlier versions are migrated in place: new columns are added and no rows are removed. Old
 rows get an audio status on the next scan.
 
+### Audio verification
+1. `fpcalc` (Chromaprint) fingerprints each file. Fingerprints are cached and recalculated only when a file
+   changes.
+2. AcoustID returns the recordings that match the fingerprint, with MusicBrainz details.
+3. The identified recording is compared with your title, artist and album. The comparison is version-aware:
+   "(2008 Remaster)" counts as the same recording; live, remix, edit and acoustic versions are "Likely match"
+   with a note; instrumental or karaoke versus vocal is "Possible mismatch"; same title by another artist (a
+   cover?) is "Possible mismatch"; a different song is "Strong mismatch". An album that isn't among the
+   recording's releases only matters if it isn't a compilation. Weak fingerprint matches (<70%) are never rated
+   above "Likely" or "Possible".
+4. **No fingerprint match is never treated as evidence that a file is wrong.**
+
+Nothing is modified or replaced automatically. Use **Compare…** to listen, then fix tags yourself in
+Metadata Repair if needed. Without an API key the page still generates and caches fingerprints.
+
+### Audio conversion safety
+* Originals are only read. Output must go to a folder other than the original's own folder.
+* Existing files are never overwritten. Each output is written to a hidden `.mlmpart` temp file, checked, then
+  published with a no-overwrite link.
+* Each output is verified with ffprobe (audio stream, codec, length within 1% of the source), both before and
+  after tags are copied.
+* Cancelling or quitting removes unfinished temp files; leftovers from a crash are cleaned up on the next run.
+  The same file with the same settings is queued only once.
+* The app warns honestly: lossless → lossy loses information; lossy → lossy always loses some quality and
+  never improves it; a higher bitrate than the source doesn't restore quality; lossy → lossless only makes
+  files bigger.
+* Every conversion is stored in the database (settings, output path, status, errors), and failures are also
+  written to `conversion_errors.log`.
+* **Convert Albums to MP3…** in Music Library queues whole albums and keeps their `Artist/Album/` folders under
+  the output folder.
+
 ### How MusicBrainz results are treated
 Songs are matched **album by album**: one release search per album folder, then up to three candidate releases
 are compared track-by-track (title, duration, track position). The release that fits your album best wins, and
@@ -99,7 +133,7 @@ offline you get a clear message and the batch stops.
 
 * **MusicBrainz:** no key needed. You can enter a contact email or URL in Settings; it's sent in the User-Agent,
   as MusicBrainz asks.
-* **AcoustID (audio fingerprint duplicates):**
+* **AcoustID (Audio Verification and fingerprint duplicates):**
   1. Register a free application at <https://acoustid.org/new-application> and copy its API key.
   2. Install Chromaprint: `brew install chromaprint` (provides `fpcalc`).
   3. Paste the key in **Settings → AcoustID API key**. The AcoustID option in Duplicate Finder becomes active.
@@ -128,10 +162,13 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 36 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 80 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
-input validation, the suggestion workflow, every file health class (including fragmented MP4 and old-database
+input validation, conversion to every output format (metadata, artwork, CBR/VBR, batch, cancel, integrity,
+overwrite protection), playback of seven formats through Qt Multimedia, fingerprint identification with a
+simulated AcoustID (correct, mislabeled and unknown recordings, pause/resume, caching), the version-aware
+comparison rules, the suggestion workflow, every file health class (including fragmented MP4 and old-database
 migration), organisation without overwriting, MusicBrainz grading and album-level
 release matching (offline fixtures), report exports, and a headless GUI smoke test of every page.
 
@@ -144,11 +181,13 @@ mlm/
   scanner.py     recursive read-only scanner, ffprobe fallback, ffmpeg integrity check
   analysis.py    issue rules, dashboard stats, track queries
   online.py      rate-limited HTTP, MusicBrainz matching, Cover Art Archive, AcoustID
-  repair.py      the only code that writes: apply, backup, log, move, undo
+  repair.py      the only code that changes library files: apply, backup, log, move, undo
+  convert.py     FFmpeg conversion (writes new copies only), verification, history
+  verify.py      Chromaprint + AcoustID identity verification and comparison rules
   duplicates.py  hash / metadata / AcoustID duplicate groups
   organize.py    naming templates and move plans
   reports.py     CSV/JSON exports
-  gui/           PySide6 app (app.py window + pages_*.py)
+  gui/           PySide6 app (app.py window + pages_*.py; pages_audio.py = verification, player, converter)
 tests/
 ```
 
@@ -158,4 +197,9 @@ tests/
   is supported for MP3, FLAC, M4A (AAC/ALAC), OGG, Opus, WAV, AIFF and APE.
 * WAV files are read and written using ID3 tags. RIFF INFO tags written by some Windows tools are not shown.
 * Genre suggestions come from MusicBrainz community tags and are always rated "Possible match".
+* Audio Verification needs a free AcoustID API key. With about 3 lookups a second, a first pass over 8,000
+  songs takes around 45–60 minutes. It can be paused, resumed, or stopped and continued later, since finished
+  songs are skipped.
+* OGG output uses FFmpeg's experimental Vorbis encoder (stereo only). Opus is the better choice.
+* The player plays one file at a time; there's no gapless playback or crossfade.
 * The `.app` built by PyInstaller is unsigned. On first launch, right-click it and choose **Open**.

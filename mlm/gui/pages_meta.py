@@ -103,6 +103,8 @@ class InspectorPage(Page):
                             button("Check All Shown", self.mb_all), None))
         ll.addWidget(W.hbox(button("Verify Audio (ffmpeg)", self.verify,
                                    tip="Decode the whole file to detect corruption (read-only)"),
+                            button("▶ Play", lambda: self.table.selected_rows() and self.app.go(
+                                "player", rows=self.table.selected_rows())),
                             button("Edit…", self.edit), button("Reveal", self.reveal), None))
 
         self.detail = QWidget()

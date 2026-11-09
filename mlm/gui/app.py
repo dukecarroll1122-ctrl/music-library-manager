@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, db_path=None):
         super().__init__()
-        from . import pages_main, pages_meta, pages_tools
+        from . import pages_audio, pages_main, pages_meta, pages_tools
         self.db_path = db_path or db.default_db_path()
         self.conn = db.connect(self.db_path)
         self.edit_mode = False  # read-only is the default on every launch
@@ -52,10 +52,13 @@ class MainWindow(QMainWindow):
                  ("repair", "Metadata Repair", pages_meta.RepairPage),
                  ("artwork", "Artwork Manager", pages_tools.ArtworkPage),
                  ("duplicates", "Duplicate Finder", pages_tools.DuplicatesPage),
+                 ("verification", "Audio Verification", pages_audio.VerificationPage),
+                 ("player", "Music Player", pages_audio.PlayerPage),
+                 ("converter", "Audio Converter", pages_audio.ConverterPage),
                  ("organize", "Organization", pages_tools.OrganizePage),
                  ("reports", "Reports", pages_tools.ReportsPage),
                  ("settings", "Settings", pages_tools.SettingsPage)]
-        icons = ["◧", "♪", "⌕", "✎", "▣", "⧉", "⇅", "⎙", "⚙"]
+        icons = ["◧", "♪", "⌕", "✎", "▣", "⧉", "◉", "▶", "⇄", "⇅", "⎙", "⚙"]
         for i, (key, title, cls) in enumerate(specs):
             b = QPushButton(f"{icons[i]}   {title}")
             b.setObjectName("nav")
@@ -74,6 +77,12 @@ class MainWindow(QMainWindow):
                 self.addAction(act)
         self.keys = [s[0] for s in specs]
         sl.addStretch(1)
+        self.np = QPushButton("")
+        self.np.setObjectName("nav")
+        self.np.setToolTip("Now playing — click to open the player")
+        self.np.clicked.connect(lambda: self.go("player"))
+        self.np.hide()
+        sl.addWidget(self.np)
 
         self.mode_btn = QPushButton()
         self.mode_btn.clicked.connect(self.toggle_mode)
@@ -113,6 +122,11 @@ class MainWindow(QMainWindow):
             page.dirty = False
         if kw:
             page.open_with(**kw)
+
+    def now_playing(self, item):
+        fm = self.np.fontMetrics()
+        self.np.setText(fm.elidedText(f"▶  {item['title']} — {item['artist'] or '?'}", Qt.ElideRight, 190))
+        self.np.show()
 
     def _mark_dirty(self):
         for p in self.pages.values():
@@ -230,9 +244,18 @@ class MainWindow(QMainWindow):
         self.run_task("Scanning", scanner.scan, path, on_done=done)
 
     def closeEvent(self, e):
-        if self.busy():
-            self.worker.cancelled = True
-            self.worker.wait(5000)
+        conv, ver = self.pages["converter"], self.pages["verification"]
+        if conv.busy() and not W.confirm(self, "Conversion in progress", "Quit and cancel the running conversion? "
+                                         "Unfinished output files are removed; originals are untouched.", ok="Quit"):
+            e.ignore()
+            return
+        self.pages["player"].player.stop()
+        for w in (self.worker, conv.worker, ver.worker):
+            if w is not None and w.isRunning():
+                w.cancelled = True
+                if hasattr(w, "paused"):
+                    w.paused = False
+                w.wait(15000)
         e.accept()
 
 
