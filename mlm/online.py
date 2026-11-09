@@ -23,7 +23,8 @@ ACOUSTID = "https://api.acoustid.org/v2/lookup"
 DEFAULT_UA = "MusicLibraryManager/1.0 ( local macOS desktop app )"
 CACHE_DAYS = 30
 # Minimum seconds between requests per host (MusicBrainz allows ~1/s; AcoustID 3/s)
-INTERVAL = {"musicbrainz.org": 1.1, "api.acoustid.org": 0.35, "coverartarchive.org": 0.25}
+INTERVAL = {"musicbrainz.org": 1.1, "api.acoustid.org": 0.35, "coverartarchive.org": 0.25,
+            "itunes.apple.com": 3.1}  # Apple asks for ~20 requests/minute
 
 VERIFIED, HIGH, POSSIBLE, REVIEW, NONE = ("Verified", "High-confidence match", "Possible match",
                                           "Needs manual review", "No match found")
@@ -34,7 +35,9 @@ _last = {h: 0.0 for h in INTERVAL}
 
 
 class NetworkError(Exception):
-    pass
+    def __init__(self, msg, code=None, api_code=None):
+        super().__init__(msg)
+        self.code, self.api_code = code, api_code  # HTTP status, service-specific error code
 
 
 def _ssl_ctx():
@@ -70,10 +73,17 @@ def http(url, ua, data=None, timeout=25):
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
-            if e.code in (429, 503) and attempt < 2:
+            if e.code in (429, 500, 502, 503, 504) and attempt < 2:  # rate limit / temporary server error
                 time.sleep(2 * (attempt + 1))
                 continue
-            raise NetworkError(f"{host} returned HTTP {e.code}")
+            detail, api_code = "", None
+            try:  # services such as AcoustID explain the error in a JSON body
+                err = json.loads(e.read() or b"{}").get("error") or {}
+                detail, api_code = err.get("message", ""), err.get("code")
+            except (ValueError, AttributeError, OSError):
+                pass
+            raise NetworkError(f"{host} returned HTTP {e.code}" + (f": {detail}" if detail else ""), e.code,
+                               api_code)
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise NetworkError(f"Cannot reach {host} — check your internet connection ({getattr(e, 'reason', e)})")
 
@@ -269,7 +279,8 @@ RELEASE_CANDIDATES = 3
 
 def _base(s):
     """Album title without edition suffixes: 'OK Computer (Remastered)' -> 'OK Computer'."""
-    return re.sub(r"\s*[\(\[][^\)\]]*[\)\]]\s*", " ", s or "").strip()
+    s = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]\s*", " ", s or "").strip()
+    return re.sub(r"\s+[-–]\s+(single|ep)$", "", s, flags=re.I).strip()  # Apple Music style "AIZO - Single"
 
 
 def album_sim(a, b):

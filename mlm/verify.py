@@ -60,15 +60,48 @@ def cached_fingerprint(conn, track):
 
 # ---------- AcoustID ----------
 
+INVALID_KEY = 4  # AcoustID error code
+KEY_HELP = ("AcoustID rejected the API key. The app needs an *application* API key: register one (free) at "
+            "https://acoustid.org/new-application and paste the key it shows. The \"API key\" on your AcoustID "
+            "account page is a *user* key for submitting fingerprints and does not work for lookups.")
+
+
+class InvalidKeyError(online.NetworkError):
+    pass
+
+
 def acoustid_lookup(key, duration, fp, ua=online.DEFAULT_UA):
     body = urllib.parse.urlencode(dict(client=key, meta="recordings releasegroups compress", duration=int(duration),
                                        fingerprint=fp)).encode()
-    raw = online.http(online.ACOUSTID, ua, data=body)
+    try:
+        raw = online.http(online.ACOUSTID, ua, data=body)
+    except online.NetworkError as e:
+        if e.api_code == INVALID_KEY:
+            raise InvalidKeyError(KEY_HELP, e.code, e.api_code)
+        raise
     data = json.loads(raw or b"{}")
     if data.get("status") != "ok":
-        msg = (data.get("error") or {}).get("message", "unknown error")
-        raise online.NetworkError(f"AcoustID: {msg}")
+        err = data.get("error") or {}
+        if err.get("code") == INVALID_KEY:
+            raise InvalidKeyError(KEY_HELP, None, INVALID_KEY)
+        raise online.NetworkError(f"AcoustID: {err.get('message', 'unknown error')}")
     return data.get("results", [])
+
+
+def check_key(key, fp_row=None):
+    """Ask AcoustID whether `key` is a valid application key. Returns (ok, message)."""
+    if not key.strip():
+        return False, "No key entered."
+    d, fp = (fp_row.split("|", 1) if fp_row else ("30", "AQAAAA"))  # a tiny dummy fingerprint is enough
+    try:
+        acoustid_lookup(key.strip(), float(d), fp)
+    except InvalidKeyError:
+        return False, KEY_HELP
+    except online.NetworkError as e:
+        if e.code == 400:  # key accepted; only the dummy fingerprint was refused
+            return True, "Key accepted by AcoustID."
+        return False, f"Could not check the key: {e}"
+    return True, "Key accepted by AcoustID."
 
 
 def mb_recording(conn, rid):
@@ -303,10 +336,10 @@ def run_batch(conn, ids, key, progress=None, cancel=None, paused=None, workers=4
                 try:
                     res = verify_track(conn, r, key, ua)
                     counts[res["status"]] += 1
-                except online.NetworkError as e:
-                    errors.append(str(e))
+                except online.NetworkError as e:  # bad key or offline: stop rather than fail every song
+                    errors.insert(0, str(e))
                     conn.commit()
-                    return dict(counts=counts, errors=errors, done=done, cancelled=False)
+                    return dict(counts=counts, errors=errors, done=done, cancelled=False, stopped=True)
                 done += 1
             conn.commit()
     return dict(counts=counts, errors=errors, done=done, cancelled=False)

@@ -340,3 +340,53 @@ def test_changed_file_needs_reverification(conn, tmp_path, monkeypatch):
     scanner.scan(conn, str(tmp_path / "lib"))
     assert len(verify.pending_ids(conn)) == 1
     assert conn.execute("SELECT fingerprint FROM tracks").fetchone()[0] is None  # cache invalidated
+
+
+# ---------- AcoustID errors (regression: "api.acoustid.org returned HTTP 400" with no explanation) ----------
+
+def _http_400(body):
+    import io
+    import urllib.error
+
+    def fake_urlopen(req, timeout=None, context=None):
+        raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(body))
+    return fake_urlopen
+
+
+def test_http_error_keeps_service_message(monkeypatch):
+    monkeypatch.setattr(online.urllib.request, "urlopen",
+                        _http_400(b'{"error": {"code": 4, "message": "invalid API key"}, "status": "error"}'))
+    with pytest.raises(online.NetworkError) as e:
+        online.http("https://api.acoustid.org/v2/lookup", "ua", data=b"x")
+    assert "invalid API key" in str(e.value) and e.value.code == 400 and e.value.api_code == 4
+
+
+def test_invalid_key_is_explained(monkeypatch):
+    monkeypatch.setattr(online.urllib.request, "urlopen",
+                        _http_400(b'{"error": {"code": 4, "message": "invalid API key"}, "status": "error"}'))
+    with pytest.raises(verify.InvalidKeyError) as e:
+        verify.acoustid_lookup("userkey123", 30, "AQAA")
+    assert "application" in str(e.value) and "new-application" in str(e.value)
+    assert verify.check_key("userkey123")[0] is False
+
+
+def test_check_key_accepts_valid_key(monkeypatch):
+    # a valid key with a dummy fingerprint gets a different error (e.g. code 3, invalid fingerprint)
+    monkeypatch.setattr(online.urllib.request, "urlopen",
+                        _http_400(b'{"error": {"code": 3, "message": "invalid fingerprint"}, "status": "error"}'))
+    assert verify.check_key("goodkey123") == (True, "Key accepted by AcoustID.")
+    assert verify.check_key("  ")[0] is False
+
+
+@pytest.mark.skipif(not scanner.tool("fpcalc"), reason="Chromaprint (fpcalc) not installed")
+def test_batch_stops_cleanly_on_invalid_key(conn, tmp_path, monkeypatch):
+    for i in range(2):
+        make_audio(tmp_path / f"lib/{i}.mp3", seconds=12, freq=400 + 300 * i, title=f"S{i}", artist="A")
+    scanner.scan(conn, str(tmp_path / "lib"))
+
+    def bad(*a, **k):
+        raise verify.InvalidKeyError(verify.KEY_HELP)
+    monkeypatch.setattr(verify, "acoustid_lookup", bad)
+    res = verify.run_batch(conn, verify.pending_ids(conn), key="userkey123")
+    assert res["stopped"] and res["errors"][0] == verify.KEY_HELP and res["done"] == 0
+    assert conn.execute("SELECT count(*) FROM verifications").fetchone()[0] == 0  # no bogus results stored

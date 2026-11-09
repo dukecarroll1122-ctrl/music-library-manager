@@ -157,3 +157,17 @@ def test_diagnostics_report(conn, tmp_path):
     assert by["junk.mp3"]["inspection_result"] == "Potentially corrupted" and by["junk.mp3"]["error_message"]
     assert "Fragmented MP4" in by["Frag.m4a"]["inspection_notes"]
     assert set(rows[0]) >= {"path", "format", "error_message", "inspection_result"}
+
+
+def test_large_artwork_on_fragmented_mp4_keeps_audio(conn, tmp_path):
+    import io
+    from PIL import Image
+    p = frag_m4a(tmp_path / "lib/Frag.m4a", title="F")
+    scanner.scan(conn, str(tmp_path / "lib"))
+    before = audio_md5(p)
+    buf = io.BytesIO()
+    Image.effect_noise((1500, 1500), 80).convert("RGB").save(buf, "JPEG", quality=95)  # ~2 MB, grows moov a lot
+    tid = conn.execute("SELECT id FROM tracks").fetchone()[0]
+    assert repair.apply_changes(conn, {tid: {"artwork": (buf.getvalue(), "image/jpeg")}}, edit_mode=True)["errors"] == []
+    assert audio_md5(p) == before and scanner.verify_audio(p)[0] == "ok"
+    assert tags.get_art(mutagen.File(p))[0] == buf.getvalue()

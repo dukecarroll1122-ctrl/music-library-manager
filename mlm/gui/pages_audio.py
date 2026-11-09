@@ -905,10 +905,24 @@ class VerificationPage(Page):
         self.run_all.setEnabled(True)
         self.app.task_label.setText("Audio verification — " + ("cancelled" if res.get("cancelled") else "done"))
         self.reload()
+        from .. import verify
         counts = "\n".join(f"{k}: {v:,}" for k, v in res.get("counts", {}).items() if v)
-        msg = f"Processed {res.get('done', 0):,} song(s).\n\n{counts or 'Fingerprints generated and cached.'}"
-        if res.get("errors"):
-            msg += f"\n\n{len(res['errors'])} problem(s):\n" + "\n".join(res["errors"][:8])
+        errors = res.get("errors", [])
+        if errors and errors[0] == verify.KEY_HELP:
+            return W.error(self, "AcoustID API key not accepted",
+                           verify.KEY_HELP + "\n\nNothing was changed. Fix the key in Settings (use Test Key), "
+                                             "then run verification again.")
+        stopped = bool(errors) and res.get("stopped")
+        if counts:
+            msg = f"Verified {res.get('done', 0):,} song(s).\n\n{counts}"
+        elif self.worker and not self.worker.key and res.get("done"):
+            msg = f"Fingerprinted {res['done']:,} song(s); fingerprints are cached for when you add an API key."
+        else:
+            msg = f"Processed {res.get('done', 0):,} song(s)."
+        if stopped:
+            msg = "Verification stopped early.\n\n" + msg
+        if errors:
+            msg += f"\n\n{len(errors)} problem(s):\n" + "\n".join(errors[:8])
         W.info(self, "Audio verification", msg)
 
     def pause(self):

@@ -5,8 +5,8 @@ import subprocess
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, QLabel, QLineEdit, QListView,
-                               QListWidget, QListWidgetItem, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+                               QListWidget, QListWidgetItem, QSplitter, QTabWidget, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from .. import db, duplicates, online, organize, repair, reports, scanner
 from . import widgets as W
@@ -24,8 +24,17 @@ def placeholder_icon(size=150):
 class ArtworkPage(Page):
     def __init__(self, app):
         super().__init__(app)
-        self.outer.addWidget(W.page_header("Artwork Manager", "Find albums without artwork, search the Cover Art "
-                                                              "Archive, preview and apply covers to whole albums."))
+        self.outer.addWidget(W.page_header("Artwork Manager", "Find covers for everything missing artwork at once, "
+                                                              "or browse albums and choose covers one by one."))
+        from .bulk_art import BulkArtTab
+        self.tabs = QTabWidget()
+        self.bulk = BulkArtTab(app)
+        self.tabs.addTab(self.bulk, "Find Missing Artwork")
+        browse = QWidget()
+        self.browse_l = QVBoxLayout(browse)
+        self.browse_l.setContentsMargins(0, 10, 0, 0)
+        self.tabs.addTab(browse, "Browse Albums")
+        self.outer.addWidget(self.tabs, 1)
         self.filter = QComboBox()
         self.filter.addItems(["Missing artwork", "Partial or mixed artwork", "All albums"])
         self.filter.currentTextChanged.connect(lambda _: self.reload())
@@ -94,10 +103,11 @@ class ArtworkPage(Page):
         split.addWidget(left)
         split.addWidget(right)
         split.setSizes([620, 560])
-        self.outer.addWidget(split, 1)
+        self.browse_l.addWidget(split, 1)
         self.proposed = None  # (bytes, mime, (w, h))
 
     def refresh(self):
+        self.bulk.refresh()
         self.reload()
 
     def reload(self):
@@ -545,7 +555,12 @@ class SettingsPage(Page):
         g.addWidget(self.contact, 0, 1)
         g.addWidget(W.label("AcoustID API key", "muted"), 1, 0)
         g.addWidget(self.acoustid, 1, 1)
+        g.addWidget(button("Test Key", self.test_key, tip="Ask AcoustID whether this is a valid application key"),
+                    1, 2)
         lay.addLayout(g)
+        self.key_status = W.label("", "muted", True)
+        self.key_status.setOpenExternalLinks(True)
+        lay.addWidget(self.key_status)
         self.fp_status = W.label("", "muted", True)
         lay.addWidget(self.fp_status)
         lay.addWidget(W.label("MusicBrainz needs no key; requests are limited to one per second and cached for 30 "
@@ -572,8 +587,25 @@ class SettingsPage(Page):
         self.outer.addStretch(1)
 
     def save_key(self):
-        db.set_setting(self.app.conn, "acoustid_key", self.acoustid.text().strip())
-        self.app.pages["duplicates"].dirty = True
+        new = self.acoustid.text().strip()
+        if new != db.get_setting(self.app.conn, "acoustid_key"):
+            self.key_status.setText("")
+        db.set_setting(self.app.conn, "acoustid_key", new)
+        for p in ("duplicates", "verification"):
+            self.app.pages[p].dirty = True
+
+    def test_key(self):
+        from .. import verify
+        self.save_key()
+        key = self.acoustid.text().strip()
+        row = self.app.conn.execute("SELECT fingerprint FROM tracks WHERE fingerprint IS NOT NULL LIMIT 1").fetchone()
+        self.key_status.setText("Checking with AcoustID…")
+        self.key_status.repaint()
+        ok, msg = verify.check_key(key, row[0] if row else None)
+        msg = msg.replace("https://acoustid.org/new-application",
+                          "<a style='color:#5b8cff' href='https://acoustid.org/new-application'>"
+                          "acoustid.org/new-application</a>")
+        self.key_status.setText(f"<span style='color:{W.GREEN if ok else W.RED}'>{'✓' if ok else '✕'}</span> {msg}")
 
     def refresh(self):
         c = self.app.conn

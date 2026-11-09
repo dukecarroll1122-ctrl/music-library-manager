@@ -38,7 +38,7 @@ python3 -m venv .venv
 | **Music Library** | Every song in a sortable table. Global search, plus filters for artist, album, genre, year, format, problem type, minimum bitrate and sample rate. Select songs and use **Edit Selected…** to batch edit. |
 | **Metadata Inspector** | Songs with issues, a detail panel with all tags, technical info, the issue list and MusicBrainz results. **Check with MusicBrainz** grades each song as Verified / High-confidence / Possible / Needs manual review / No match. **Verify Audio** fully decodes files with ffmpeg to detect corruption. |
 | **Metadata Repair** | Proposed changes from MusicBrainz and your own edits, shown as BEFORE → AFTER. Approve or reject each one, then **Apply Approved Changes**. The **Repair history** tab lists every batch with **Undo**. |
-| **Artwork Manager** | Albums with missing or mixed artwork. Search the Cover Art Archive or choose a file, preview it, then apply to the whole album (optionally only songs without art). Full resolution is kept up to 3000 px. |
+| **Artwork Manager** | **Find Missing Artwork** searches covers for every album and folder without artwork in one run: from your own files (an album-mate's cover), the Cover Art Archive, and Apple's iTunes Search as a fallback. You review a grid of candidates (click one to approve, or approve all High-confidence ones), then **Apply Approved**. **Browse Albums** lets you pick covers for one album at a time or choose an image file. Full resolution is kept up to 3000 px. |
 | **Audio Verification** | Checks whether the audio actually matches the tags, using a Chromaprint fingerprint looked up in AcoustID/MusicBrainz. Statuses: Verified match, Likely match, Possible mismatch, Strong mismatch, No fingerprint match, Needs manual review. Runs in the background with pause, resume and cancel. **Play** and **Compare…** send files to the player. |
 | **Music Player** | Plays files from where they are (Qt Multimedia with its FFmpeg backend): MP3, AAC/M4A, ALAC, FLAC, WAV, AIFF, Opus, OGG and more. Queue, seek, volume and artwork. **Compare mode** keeps the playback position when you switch songs, so two versions can be A/B'd. |
 | **Audio Converter** | Makes converted **copies** with FFmpeg. Outputs: MP3 (320/256/192/128 CBR, custom bitrate or VBR V0–V9), AAC, FLAC, WAV, ALAC, OGG, Opus. Sample rate and mono/stereo options. Tags, track/disc numbers, album artist, year and artwork are kept. Batch queue with estimated sizes, per-file progress, cancel, and conversion history. |
@@ -82,6 +82,20 @@ that isn't plainly healthy or needed a fallback reader.
 
 Databases created by earlier versions are migrated in place: new columns are added and no rows are removed. Old
 rows get an audio status on the next scan.
+
+### Bulk artwork
+* Songs without artwork are grouped by album tag. Songs with no album tag are grouped by folder, and the
+  folder names (e.g. `MF DOOM/The Mouse & the Mask`) are used only to *search*; tags are never changed.
+  Generic folders such as "Various Artists" are not searched.
+* Matching ignores edition suffixes ("Deluxe", "(Remastered)", Apple-style " - Single"/" - EP") and checks
+  the artist too, so a similar title by another artist isn't offered. MusicBrainz aliases and romanised sort
+  names count as the same artist (山下達郎 = Tatsuro Yamashita). iTunes is only asked when the Cover Art
+  Archive has no good match. Apple's rate limit is about 20 requests a minute.
+* High confidence means the album title and artist both match. Matches by folder name, or to a different
+  edition, are "Possible".
+* Search is resumable and keeps your approve/reject decisions. Apply needs Edit Mode, downloads full-size
+  images, and embeds a cover **only into songs that still have none**, so existing artwork is never replaced.
+  Each album is a separate batch you can undo in Repair history.
 
 ### Audio verification
 1. `fpcalc` (Chromaprint) fingerprints each file. Fingerprints are cached and recalculated only when a file
@@ -136,7 +150,9 @@ offline you get a clear message and the batch stops.
 * **AcoustID (Audio Verification and fingerprint duplicates):**
   1. Register a free application at <https://acoustid.org/new-application> and copy its API key.
   2. Install Chromaprint: `brew install chromaprint` (provides `fpcalc`).
-  3. Paste the key in **Settings → AcoustID API key**. The AcoustID option in Duplicate Finder becomes active.
+  3. Paste the key in **Settings → AcoustID API key** and click **Test Key**. Use the *application* key from
+     the new-application page. The "API key" on your AcoustID account page is a *user* key for submitting
+     fingerprints, and AcoustID rejects it for lookups ("invalid API key"). The AcoustID option in Duplicate Finder becomes active.
 
 ## Safety model
 
@@ -162,7 +178,7 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 80 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 96 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
 input validation, conversion to every output format (metadata, artwork, CBR/VBR, batch, cancel, integrity,
@@ -184,6 +200,7 @@ mlm/
   repair.py      the only code that changes library files: apply, backup, log, move, undo
   convert.py     FFmpeg conversion (writes new copies only), verification, history
   verify.py      Chromaprint + AcoustID identity verification and comparison rules
+  artfetch.py    bulk artwork search (your files, Cover Art Archive, iTunes), review state, apply
   duplicates.py  hash / metadata / AcoustID duplicate groups
   organize.py    naming templates and move plans
   reports.py     CSV/JSON exports

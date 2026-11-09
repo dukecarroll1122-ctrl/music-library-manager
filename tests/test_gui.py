@@ -92,3 +92,15 @@ def test_inspector_shows_album_match(win, library):
     insp.select_id(tid)
     texts = [w.text() for w in insp.detail.findChildren(type(insp.count))]
     assert any("Matched as part of the whole album" in t for t in texts)
+
+
+def test_saving_acoustid_key_refreshes_verification_banner(win):
+    v = win.pages["verification"]
+    win.go("verification")
+    assert "No AcoustID API key" in v.banner.text()
+    s = win.pages["settings"]
+    win.go("settings")
+    s.acoustid.setText("abc123")
+    s.save_key()
+    win.go("verification")
+    assert not v.banner.isVisibleTo(win) or "No AcoustID API key" not in v.banner.text()
