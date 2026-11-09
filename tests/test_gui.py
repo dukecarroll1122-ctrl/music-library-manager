@@ -74,3 +74,21 @@ def test_read_only_default_blocks_apply(win, library):
     repair.queue_manual(win.conn, [tid], {"genre": "Jazz"})
     with pytest.raises(repair.ReadOnlyError):
         repair.apply_suggestions(win.conn, [1], win.edit_mode)
+
+
+def test_inspector_shows_album_match(win, library):
+    import json
+    win.scan_folder(str(library))
+    wait(win)
+    tid = win.conn.execute("SELECT id FROM tracks WHERE title='One'").fetchone()[0]
+    cands = [dict(title="12 tracks", artist="Artist A", release="Album X", date="2001", country="GB", score=91,
+                  length=0, id="rel", album=True)]
+    win.conn.execute("INSERT OR REPLACE INTO mb_matches VALUES(?,?,?,?,?,?,?)",
+                     (tid, "Verified", 91, "rec", "rel", json.dumps(cands), 0))
+    win.conn.commit()
+    win.go("inspector", track_id=tid)
+    insp = win.pages["inspector"]
+    insp.filter.setCurrentText("All songs")
+    insp.select_id(tid)
+    texts = [w.text() for w in insp.detail.findChildren(type(insp.count))]
+    assert any("Matched as part of the whole album" in t for t in texts)

@@ -53,9 +53,16 @@ files whose size or modification time changed. If a drive is unplugged, its song
 found instead of being deleted, and scanning a disconnected drive shows a clear message.
 
 ### How MusicBrainz results are treated
+Songs are matched **album by album**: one release search per album folder, then up to three candidate releases
+are compared track-by-track (title, duration, track position). The release that fits your album best wins, and
+editions with many extra tracks (deluxe, box sets) are penalised, so every song in an album gets the same
+release, year and album artist. This takes about four requests per album instead of one per song. Untitled songs
+can still be identified by track position and length. Songs without an album, or ones the release doesn't
+contain, fall back to a per-song search.
+
 A database result is evidence, not truth. Matching scores title, artist, album and duration. Proposals that
 differ from your tags carry a note that remasters, deluxe, regional and compilation editions can legitimately
-differ. Year, track and disc changes to fields that already have a value are never rated higher than "Possible
+differ. Differences that are only an edition suffix ("Remastered", "Deluxe") or capitalisation, and year, track and disc changes to fields that already have a value are never rated higher than "Possible
 match". Release-level fields (album, album artist, year, track) are only proposed when the match is on your
 album. Nothing is applied automatically. Requests are rate-limited to 1/second and cached for 30 days. If you're
 offline you get a clear message and the batch stops.
@@ -93,11 +100,11 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 23 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 25 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
-input validation, the suggestion workflow, organisation without overwriting, MusicBrainz grading (offline
-fixtures), report exports, and a headless GUI smoke test of every page.
+input validation, the suggestion workflow, organisation without overwriting, MusicBrainz grading and album-level
+release matching (offline fixtures), report exports, and a headless GUI smoke test of every page.
 
 ## Project layout
 

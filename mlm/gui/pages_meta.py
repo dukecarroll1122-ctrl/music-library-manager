@@ -216,14 +216,22 @@ class InspectorPage(Page):
                                  f" · checked {time.strftime('%b %d %H:%M', time.localtime(m['checked']))}</span>"))
             lay.addWidget(W.label(CONF_HELP.get(m["confidence"], ""), "muted", wrap=True))
             cands = json.loads(m["candidates"] or "[]")
+            album_mode = bool(cands) and cands[0].get("album")
+            if album_mode:
+                lay.addWidget(W.label(f"Matched as part of the whole album. Best release: <b>{cands[0]['release']}</b>"
+                                      f" ({cands[0]['date'] or 'no date'} {cands[0]['country'] or ''}, "
+                                      f"{cands[0]['title']}). Releases compared:", wrap=True))
             if cands:
                 tree = QTreeWidget()
-                tree.setHeaderLabels(["Title", "Artist", "Release", "Date", "Length", "Score"])
+                tree.setHeaderLabels(["Release", "Artist", "Tracks", "Date", "Country", "Score"] if album_mode else
+                                     ["Title", "Artist", "Release", "Date", "Length", "Score"])
                 tree.setRootIsDecorated(False)
                 for cd in cands:
-                    tree.addTopLevelItem(QTreeWidgetItem([cd["title"] or "", cd["artist"] or "", cd["release"] or "",
-                                                          cd["date"] or "", W.fmt_dur(cd["length"]),
-                                                          str(cd["score"])]))
+                    cols = ([cd["release"] or "", cd["artist"] or "", cd["title"] or "", cd["date"] or "",
+                             cd["country"] or "", str(cd["score"])] if album_mode else
+                            [cd["title"] or "", cd["artist"] or "", cd["release"] or "", cd["date"] or "",
+                             W.fmt_dur(cd["length"]), str(cd["score"])])
+                    tree.addTopLevelItem(QTreeWidgetItem(cols))
                 tree.setMinimumHeight(30 + 24 * min(6, len(cands)))
                 tree.setColumnWidth(0, 150)
                 tree.setColumnWidth(2, 140)
@@ -288,11 +296,11 @@ class InspectorPage(Page):
             W.info(self, "MusicBrainz check finished", msg)
             if keep:
                 self.select_id(keep[0]["id"])
-        eta = len(ids) * 1.1
-        if len(ids) > 30 and not W.confirm(self, "Check with MusicBrainz",
-                                           f"MusicBrainz allows about one request per second, so checking "
-                                           f"{len(ids):,} songs takes roughly {W.fmt_dur(eta)}. Results are cached. "
-                                           "Continue?", ok="Start"):
+        eta = online.estimate_seconds(self.app.conn, ids)
+        if eta > 60 and not W.confirm(self, "Check with MusicBrainz",
+                                      f"Songs are matched album by album. MusicBrainz allows about one request per "
+                                      f"second, so checking {len(ids):,} songs takes up to {W.fmt_dur(eta)} "
+                                      "(less for anything already cached). Continue?", ok="Start"):
             return
         self.app.run_task("MusicBrainz lookup", online.lookup_many, ids, on_done=done)
 

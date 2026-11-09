@@ -236,3 +236,59 @@ def test_mb_never_fills_release_fields_from_other_release():
     rec["releases"][0]["artist-credit"] = [{"name": "Various Artists"}]
     s = online.score(tr, "Song", "Band", rec)
     assert not {"albumartist", "year", "track"} & {p[0] for p in online.proposals(tr, s, online.HIGH)}
+
+
+# ---------- album-level MusicBrainz matching (offline fixtures) ----------
+
+def _rel_detail(rid, date, discs):
+    return {"id": rid, "title": "OK Computer", "date": date, "country": "GB", "status": "Official",
+            "artist-credit": [{"name": "Radiohead"}], "genres": [{"name": "alternative rock", "count": 5}],
+            "media": [{"position": p, "tracks": [{"number": str(n), "title": t, "length": l * 1000,
+                                                  "recording": {"id": f"r-{t}", "title": t, "length": l * 1000,
+                                                                "artist-credit": [{"name": "Radiohead"}]}}
+                                                 for n, (t, l) in enumerate(tracks, 1)]}
+                      for p, tracks in enumerate(discs, 1)]}
+
+
+ORIGINAL = [("Airbag", 284), ("Paranoid Android", 383), ("Subterranean Homesick Alien", 267), ("Exit Music", 264)]
+
+
+def test_album_matching_picks_original_edition_and_is_consistent(conn, monkeypatch):
+    releases = {
+        "deluxe": _rel_detail("deluxe", "2009-03-24", [ORIGINAL + [(f"Extra {i}", 200) for i in range(8)],
+                                                      [(f"B-side {i}", 200) for i in range(8)]]),
+        "orig": _rel_detail("orig", "1997-06-16", [ORIGINAL]),
+    }
+    calls = []
+
+    def fake(conn_, url, ua):
+        calls.append(url)
+        if "/release?query=" in url:
+            return {"releases": [dict(releases["deluxe"], **{"track-count": 20}),
+                                 dict(releases["orig"], **{"track-count": 4})]}
+        for rid, rel in releases.items():
+            if f"/release/{rid}?" in url:
+                return rel
+        return {}  # per-song recording searches find nothing
+    monkeypatch.setattr(online, "cached_json", fake)
+    rows = [("Airbag", 1, 284, ""), ("Paranoid Android", 2, 383, ""), ("", 4, 264, ""),  # untitled: placed by position
+            ("Bonus Song", 9, 100, "")]                                                  # not on the release
+    for i, (title, n, dur, year) in enumerate(rows, 1):
+        conn.execute("INSERT INTO tracks(id, path, title, artist, album, albumartist, year, track, duration, genre, "
+                     "readable, missing) VALUES(?,?,?,?,?,?,?,?,?,?,1,0)",
+                     (i, f"/m/Radiohead/OK Computer/{i:02d}.mp3", title, "Radiohead", "OK Computer (Remastered)", "",
+                      year, n, dur, ""))
+    conn.commit()
+    res = online.lookup_many(conn, [1, 2, 3, 4])
+    m = {r["track_id"]: dict(r) for r in conn.execute("SELECT * FROM mb_matches")}
+    assert {m[i]["release_id"] for i in (1, 2, 3)} == {"orig"}  # 4-track original beats the 20-track deluxe
+    assert m[4]["confidence"] == online.NONE  # fell back to a per-song lookup
+    assert sum("/release?query=" in u for u in calls) == 1  # one release search for the whole album
+    sugg = {(r["track_id"], r["field"]): r["proposed"] for r in conn.execute("SELECT * FROM suggestions")}
+    assert sugg[(3, "title")] == "Exit Music"
+    assert {sugg[(i, "year")] for i in (1, 2, 3)} == {"1997"}  # same year for every song in the album
+    assert all(sugg[(i, "albumartist")] == "Radiohead" for i in (1, 2, 3))
+    assert (1, "track") not in sugg and (2, "track") not in sugg
+    conf = {r["field"]: r["confidence"] for r in conn.execute("SELECT * FROM suggestions WHERE track_id=1")}
+    assert conf["album"] == online.POSSIBLE  # only the "(Remastered)" suffix differs
+    assert res["counts"][online.NONE] == 1

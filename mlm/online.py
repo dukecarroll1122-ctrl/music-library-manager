@@ -184,7 +184,7 @@ def proposals(tr, s, conf):
             if field == "disc" and not cur and prop == "1":
                 continue
         elif field == "year":
-            if cur[:4] in (prop, (rec.get("first-release-date") or "")[:4]):
+            if cur and cur[:4] in (prop, (rec.get("first-release-date") or "")[:4]):
                 continue  # matches this release or the recording's original release year
         elif cur == prop:
             continue
@@ -198,6 +198,9 @@ def proposals(tr, s, conf):
             note = "Field is empty in your file."
         elif cur.casefold() == prop.casefold():
             note = "Only capitalisation differs."
+        elif field in ("album", "title") and norm(_base(cur)) == norm(_base(prop)):
+            note = "Only an edition suffix differs (e.g. “Remastered”, “Deluxe”). Keeping yours is usually fine."
+            c = POSSIBLE
         elif field == "year":
             note = ("Year differs from this MusicBrainz release. Your file may carry the original release "
                     "year or a remaster/reissue year — both can be valid.")
@@ -236,6 +239,11 @@ def lookup_track(conn, tr, ua=None):
                       country=s["rel"].get("country", ""), score=round(s["total"] * 100),
                       length=round((s["rec"].get("length") or 0) / 1000), id=s["rec"].get("id"))
                  for s in scored[:6]]
+    return _save(conn, tr, conf, best, cands)
+
+
+def _save(conn, tr, conf, best, cands):
+    """Replace this track's pending MusicBrainz proposals and match record."""
     conn.execute("DELETE FROM suggestions WHERE track_id=? AND source='musicbrainz' AND status='pending'",
                  (tr["id"],))
     if best and conf in (VERIFIED, HIGH, POSSIBLE):
@@ -252,21 +260,188 @@ def lookup_track(conn, tr, ua=None):
     return conf
 
 
+# ---------- album-level matching ----------
+# One release search + up to 3 release fetches per album (instead of one search per song), and every song in
+# the album is matched against the same release, so track numbers, years and album artist stay consistent.
+
+RELEASE_CANDIDATES = 3
+
+
+def _base(s):
+    """Album title without edition suffixes: 'OK Computer (Remastered)' -> 'OK Computer'."""
+    return re.sub(r"\s*[\(\[][^\)\]]*[\)\]]\s*", " ", s or "").strip()
+
+
+def album_sim(a, b):
+    return max(sim(a, b), sim(_base(a), _base(b)))
+
+
+def _year(date):
+    y = (date or "")[:4]
+    return int(y) if y.isdigit() else 9999
+
+
+def search_releases(conn, album, artist, n_local, ua):
+    """Release search results ranked by title, artist, track-count closeness, officialness, then earliest date."""
+    q = f'release:"{esc(_base(album) or album)}"' + (f' AND artist:"{esc(artist)}"' if artist else "")
+    data = cached_json(conn, f"{MB}/release?query={urllib.parse.quote(q)}&fmt=json&limit=25", ua)
+    ranked = []
+    for r in data.get("releases", []):
+        n = r.get("track-count") or sum(m.get("track-count", 0) for m in r.get("media") or [])
+        s = (0.4 * album_sim(album, r.get("title")) +
+             0.3 * (sim(artist, credit(r.get("artist-credit"))) if artist else 0.5) +
+             0.2 * (1 - abs(n - n_local) / max(n, n_local, 1)) + 0.1 * (r.get("status") == "Official"))
+        ranked.append((round(s, 2), _year(r.get("date")), r))
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    return [r for _, _, r in ranked]
+
+
+def release_tracks(release):
+    return [(m.get("position") or 1, t) for m in release.get("media") or [] for t in m.get("tracks") or []]
+
+
+def match_tracks(local, release):
+    """Greedy one-to-one assignment of local songs to release tracks.
+    Returns ({local_index: (release_track_index, score, title_sim, duration_diff, same_position)}, score 0..1)."""
+    rts = release_tracks(release)
+    pairs = []
+    for i, t in enumerate(local):
+        title = t["title"] or guess_title(t["path"])
+        for j, (pos, rt) in enumerate(rts):
+            rec = rt.get("recording") or {}
+            ts = sim(title, rt.get("title") or rec.get("title"))
+            length = rt.get("length") or rec.get("length")
+            d = abs(length / 1000 - t["duration"]) if length and t["duration"] else None
+            ds = 0.5 if d is None else max(0.0, 1 - d / 10)
+            same_pos = bool(t["track"]) and str(t["track"]) == str(rt.get("number")) and (t["disc"] or 1) == pos
+            sc = 0.65 * ts + 0.25 * ds + 0.10 * same_pos
+            # untitled songs can still match by disc/track position + duration
+            if ts >= 0.6 or (same_pos and d is not None and d <= 3):
+                pairs.append((sc, i, j, ts, d, same_pos))
+    pairs.sort(key=lambda p: -p[0])
+    used_i, used_j, out = set(), set(), {}
+    for sc, i, j, ts, d, same_pos in pairs:
+        if i not in used_i and j not in used_j:
+            used_i.add(i)
+            used_j.add(j)
+            out[i] = (j, sc, ts, d, same_pos)
+    if not local or not rts:
+        return out, 0.0
+    extra = max(0, len(rts) - len(local)) / len(rts)  # deluxe/box editions with many extra tracks score lower
+    return out, sum(m[1] for m in out.values()) / len(local) - 0.15 * extra
+
+
+def _album_score(t, release, pos, rt, ts, d):
+    """Build the same match dict score() produces, so classify() and proposals() work unchanged."""
+    rec = dict(rt.get("recording") or {})
+    rec["title"] = rt.get("title") or rec.get("title", "")
+    rec["artist-credit"] = rt.get("artist-credit") or rec.get("artist-credit") or release.get("artist-credit")
+    rec["tags"] = [{"name": g["name"], "count": g.get("count", 0)} for g in release.get("genres") or []]
+    rel = {k: release.get(k) for k in ("id", "title", "artist-credit", "date", "country")}
+    artist = t["artist"] or t["albumartist"]
+    a = sim(artist, credit(rec["artist-credit"])) if artist else 0.5
+    al = album_sim(t["album"], release.get("title"))
+    dscore = 0.5 if d is None else max(0.0, 1 - d / 10)
+    return dict(t=ts, a=a, al=al, d=d, total=0.4 * ts + 0.3 * a + 0.15 * al + 0.15 * dscore, rec=rec, rel=rel,
+                media={"position": pos}, trk={"number": rt.get("number")}, year=_year(release.get("date")))
+
+
+def lookup_album(conn, local, wanted, ua):
+    """Match one album (all its local songs) to a single release; save results for songs in `wanted`.
+    Returns {track_id: confidence} for songs it handled; unmatched songs are left for per-song lookup."""
+    first = local[0]
+    album = first["album"]
+    artist = first["albumartist"] or first["artist"]
+    best_rel, best_score, best_map = None, 0.0, {}
+    considered = []
+    for r in search_releases(conn, album, artist, len(local), ua)[:RELEASE_CANDIDATES]:
+        rel = cached_json(conn, f"{MB}/release/{r['id']}?inc=recordings+artist-credits+genres&fmt=json", ua)
+        if not rel:
+            continue
+        m, sc = match_tracks(local, rel)
+        considered.append((sc, rel))
+        if sc > best_score:
+            best_rel, best_score, best_map = rel, sc, m
+    if not best_rel or best_score < 0.4:
+        return {}
+    cands = [dict(title=f"{len(release_tracks(rel))} tracks", artist=credit(rel.get("artist-credit")),
+                  release=rel.get("title", ""), date=rel.get("date", ""), country=rel.get("country", ""),
+                  score=round(sc * 100), length=0, id=rel.get("id"), album=True)
+             for sc, rel in sorted(considered, key=lambda x: -x[0])]
+    rts = release_tracks(best_rel)
+    out = {}
+    for i, t in enumerate(local):
+        if t["id"] not in wanted or i not in best_map:
+            continue
+        j, _, ts, d, same_pos = best_map[i]
+        pos, rt = rts[j]
+        s = _album_score(t, best_rel, pos, rt, ts, d)
+        conf = classify(s, bool(t["title"]))
+        if conf == REVIEW and not t["title"] and same_pos and d is not None and d <= 3:
+            conf = POSSIBLE  # untitled song in the right slot with the right length
+        out[t["id"]] = _save(conn, t, conf, s, cands)
+    return out
+
+
+def estimate_seconds(conn, ids):
+    """Rough MusicBrainz time: ~4 requests per album, 1-2 per loose song, 1.1 s each."""
+    albums, singles = _group(conn, ids)
+    return 1.1 * (4 * len(albums) + 1.5 * len(singles))
+
+
+def _group(conn, ids):
+    """Split requested songs into album groups (with all their album-mates) and loose songs."""
+    rows = [conn.execute("SELECT * FROM tracks WHERE id=?", (i,)).fetchone() for i in ids]
+    keys, singles = {}, []
+    for r in rows:
+        if r is None:
+            continue
+        if r["album"].strip():
+            keys.setdefault((r["album"].strip().casefold(), os.path.dirname(r["path"])), []).append(r)
+        else:
+            singles.append(r)
+    albums = []
+    for (album, folder), wanted in keys.items():
+        mates = [r for r in conn.execute("SELECT * FROM tracks WHERE missing=0 AND readable=1 AND lower(trim(album))=? "
+                                         "AND substr(path, 1, ?)=? ORDER BY disc, track, path",
+                                         (album, len(folder) + 1, folder + "/"))
+                 if os.path.dirname(r["path"]) == folder]
+        if len(mates) >= 2:
+            albums.append((mates, wanted))
+        else:
+            singles += wanted
+    return albums, singles
+
+
 def lookup_many(conn, ids, progress=None, cancel=None):
     ua = user_agent(conn)
     counts = {c: 0 for c in CONFIDENCES}
     errors = []
-    for i, tid in enumerate(ids):
-        if cancel and cancel():
-            break
-        tr = conn.execute("SELECT * FROM tracks WHERE id=?", (tid,)).fetchone()
-        if progress:
-            progress(i, len(ids), f"MusicBrainz: {tr['artist']} – {tr['title'] or os.path.basename(tr['path'])}")
-        try:
+    albums, singles = _group(conn, ids)
+    total = len(albums) + len(singles)
+    step = 0
+    try:
+        for local, wanted in albums:
+            if cancel and cancel():
+                break
+            if progress:
+                progress(step, total, f"MusicBrainz album: {local[0]['albumartist'] or local[0]['artist']} – "
+                                      f"{local[0]['album']}")
+            step += 1
+            done = lookup_album(conn, local, {w["id"] for w in wanted}, ua)
+            for c in done.values():
+                counts[c] += 1
+            singles += [w for w in wanted if w["id"] not in done]  # songs the album match couldn't place
+            total = len(albums) + len(singles)
+        for tr in singles:
+            if cancel and cancel():
+                break
+            if progress:
+                progress(step, total, f"MusicBrainz: {tr['artist']} – {tr['title'] or os.path.basename(tr['path'])}")
+            step += 1
             counts[lookup_track(conn, tr, ua)] += 1
-        except NetworkError as e:
-            errors.append(str(e))
-            break  # offline: stop instead of failing every remaining track
+    except NetworkError as e:
+        errors.append(str(e))  # offline: stop instead of failing every remaining song
     return dict(counts=counts, errors=errors)
 
 
