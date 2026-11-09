@@ -65,6 +65,7 @@ def clear_layout(lay):
     while lay.count():
         it = lay.takeAt(0)
         if it.widget():
+            it.widget().hide()  # hide now; deleteLater only runs on the next event-loop pass
             it.widget().deleteLater()
 
 
@@ -253,8 +254,14 @@ class InspectorPage(Page):
                 ("Artwork", f"{t['art_w']}×{t['art_h']} {t['art_mime'] or ''}" if t["has_art"] else "None"),
                 ("Modified", time.strftime("%Y-%m-%d %H:%M", time.localtime(t["mtime"] or 0))),
                 ("Location", t["path"])]
+        kinds = [r[0] for r in c.execute("SELECT kind FROM issues WHERE track_id=?", (t["id"],))]
+        tech.insert(0, ("Inspection", analysis.classify(t["status"], kinds)))
+        if t["status_detail"]:
+            tech.insert(1, ("Audio problem", t["status_detail"]))
+        if t["diag"]:
+            tech.append(("Inspection notes", t["diag"]))
         if t["error"]:
-            tech.append(("Note", t["error"]))
+            tech.append(("Tag note", t["error"]))
         lay.addWidget(grid_form(tech))
         self.dl.addWidget(fr)
 
@@ -316,22 +323,27 @@ class InspectorPage(Page):
             return W.info(self, "No songs", "Select songs to verify.")
 
         def run(conn, rows, progress=None, cancel=None):
-            bad = []
+            from collections import Counter
+            results, notes = Counter(), []
             for i, r in enumerate(rows):
                 if cancel and cancel():
                     break
                 if progress:
                     progress(i, len(rows), os.path.basename(r["path"]))
-                err = scanner.verify_audio(r["path"])
-                if err:
-                    bad.append(f"{os.path.basename(r['path'])}:\n   {err.splitlines()[0][:200]}")
-            return bad
+                status, detail = scanner.verify_track(conn, r["id"])
+                results[analysis.STATUS_CLASS.get(status, "Decodes cleanly" if status else "Not checked")] += 1
+                if status != scanner.OK:
+                    notes.append(f"{os.path.basename(r['path'])}: {detail[:160]}")
+            analysis.rebuild_issues(conn)
+            return results, notes
 
-        def done(bad):
-            W.info(self, "Audio verification", (f"{len(bad)} of {len(rows)} file(s) have decoding errors:\n\n"
-                                                + "\n".join(bad[:20])) if bad else
-                   f"All {len(rows)} file(s) decoded without errors.")
-        self.app.run_task("Verifying audio", run, rows, on_done=done, refresh=False)
+        def done(res):
+            results, notes = res
+            msg = "\n".join(f"{k}: {v}" for k, v in results.items())
+            if notes:
+                msg += "\n\n" + "\n".join(notes[:15])
+            W.info(self, "Audio verification (full decode)", msg + "\n\nResults are saved with each song.")
+        self.app.run_task("Verifying audio", run, rows, on_done=done)
 
     def edit(self):
         rows = self.table.selected_rows()

@@ -61,7 +61,7 @@ class DashboardPage(Page):
                  ("suspicious", "Suspicious metadata", W.AMBER, "suspicious"),
                  ("duplicates", "Duplicate songs", "#f472b6", "duplicate"),
                  ("missing_art", "Missing artwork", "#facc15", "art"),
-                 ("corrupt", "Unreadable / corrupted", W.RED, "corrupt")]
+                 ("corrupt", "Damaged files", W.RED, "corrupt")]
         grid = QGridLayout()
         grid.setSpacing(12)
         self.cards = {}
@@ -76,9 +76,10 @@ class DashboardPage(Page):
 
         self.charts = {"by_artist": W.BarChart(W.VIOLET), "by_album": W.BarChart("#38bdf8"),
                        "by_genre": W.BarChart("#f472b6"), "by_format": W.BarChart(W.BLUE),
-                       "by_health": W.BarChart(colors=[W.GREEN, W.AMBER, "#ff8a3d", W.RED])}
+                       "by_health": W.BarChart(colors=[W.GREEN, W.AMBER, W.VIOLET, "#facc15", "#ff8a3d", W.RED,
+                                                       W.MUTED])}
         titles = {"by_artist": "Top artists", "by_album": "Top albums", "by_genre": "Genres",
-                  "by_format": "Audio formats", "by_health": "Metadata health"}
+                  "by_format": "Audio formats", "by_health": "File health"}
         cg_items = [("by_health", 0, 0), ("by_format", 0, 1), ("by_artist", 1, 0), ("by_album", 1, 1),
                     ("by_genre", 2, 0)]
         cg = QGridLayout()
@@ -102,6 +103,11 @@ class DashboardPage(Page):
         self.cards["size"].set(W.fmt_size(s["size"]))
         for k in ("missing_meta", "suspicious", "duplicates", "missing_art", "corrupt"):
             self.cards[k].set(f"{s[k]:,}", pct(s[k]) if s[k] else "None found")
+        extra = [f"{s[k]:,} {n}" for k, n in (("unsupported", "unsupported"), ("partial", "decode warnings"),
+                                                ("unavailable", "unavailable")) if s[k]]
+        self.cards["corrupt"].set(f"{s['corrupt']:,}", " · ".join(extra) or ("Potentially corrupted or failed "
+                                                                             "decode" if s["corrupt"] else
+                                                                             "None found"))
         for k, ch in self.charts.items():
             ch.set_data(s[k] if s["songs"] else [])
         rows = []
@@ -109,7 +115,7 @@ class DashboardPage(Page):
             when = time.strftime("%b %d %H:%M", time.localtime(sc["started"]))
             rows.append(f"<b>{when}</b> &nbsp; <span style='color:{W.MUTED}'>{sc['root']}</span><br>"
                         f"{sc['files']:,} files · {sc['new']:,} new · {sc['updated']:,} updated · "
-                        f"{sc['errors']:,} unreadable · <i>{sc['status']}</i>")
+                        f"{sc['errors']:,} damaged/unavailable · <i>{sc['status']}</i>")
         self.scans_label.setText("<br><br>".join(rows) or f"<span style='color:{W.MUTED}'>No scans yet. "
                                  "Click <b>Scan Folder…</b> to add your music folder, external drive or SD card."
                                  "</span>")
@@ -144,8 +150,9 @@ TRACK_COLS = [("health", "", None), ("name", "Title", None), ("artist", "Artist"
               ("album", "Album", None), ("albumartist", "Album Artist", None), ("genre", "Genre", None),
               ("year", "Year", None), ("track", "#", None), ("duration", "Time", W.fmt_dur),
               ("format", "Format", None), ("bitrate", "Bitrate", W.fmt_kbps), ("sample_rate", "Rate", W.fmt_hz),
-              ("size", "Size", W.fmt_size), ("has_art", "Art", None), ("path", "Location", None)]
-TRACK_WIDTHS = [28, 220, 160, 180, 140, 100, 52, 36, 56, 60, 76, 70, 74, 40]
+              ("size", "Size", W.fmt_size), ("has_art", "Art", None), ("class", "Status", None),
+              ("path", "Location", None)]
+TRACK_WIDTHS = [28, 220, 160, 180, 140, 100, 52, 36, 56, 60, 76, 70, 74, 40, 150]
 
 
 class LibraryPage(Page):

@@ -30,7 +30,8 @@ def test_scan_extracts_metadata(conn, library):
     assert t["01.m4a"]["format"] == "AAC" and t["01.m4a"]["title"] == "Three"
     assert t["song.opus"]["format"] == "OPUS" and t["song.opus"]["artist"] == "Artist C"
     assert t["untagged.wav"]["format"] == "WAV" and t["untagged.wav"]["readable"] == 1
-    assert t["broken.mp3"]["readable"] == 0 and t["broken.mp3"]["error"]
+    assert t["broken.mp3"]["readable"] == 0 and t["broken.mp3"]["status"] == "potentially_corrupted"
+    assert t["broken.mp3"]["status_detail"]
 
 
 def test_scan_is_read_only_and_incremental(conn, library):
@@ -61,7 +62,7 @@ def test_issues_detected(conn, library):
     for r in conn.execute("SELECT t.path, i.kind FROM issues i JOIN tracks t ON t.id=i.track_id"):
         kinds.setdefault(os.path.basename(r[0]), set()).add(r[1])
     assert {"missing_title", "missing_artist", "missing_album", "missing_art"} <= kinds["untagged.wav"]
-    assert kinds["broken.mp3"] == {"unreadable"}
+    assert kinds["broken.mp3"] == {"potentially_corrupted"}
     s = analysis.stats(conn)
     assert s["songs"] == 6 and s["corrupt"] == 1 and s["missing_art"] == 5
 

@@ -489,7 +489,9 @@ class ReportsPage(Page):
             "Missing metadata report": "Songs missing title, artist, album, track, year, genre or artwork.",
             "Metadata errors report": "Suspicious metadata and unreadable/corrupted files.",
             "Duplicate report": "All duplicate groups from the Duplicate Finder.",
-            "Audio quality report": "Format, bitrate, sample rate and a quality grade for every song."}
+            "Audio quality report": "Format, bitrate, sample rate and a quality grade for every song.",
+            "Audio diagnostics report": "Path, format, error message and inspection result for every file that "
+                                        "is not plainly healthy, or needed a fallback reader."}
 
     def __init__(self, app):
         super().__init__(app)

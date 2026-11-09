@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
 
         def done(st):
             msg = (f"Scanned {st['files']:,} audio files in {st['root']}\n\nNew: {st['new']:,}   Updated: "
-                   f"{st['updated']:,}   Unchanged: {st['unchanged']:,}\nUnreadable: {st['errors']:,}   "
+                   f"{st['updated']:,}   Unchanged: {st['unchanged']:,}\nDamaged or unavailable: {st['errors']:,}   "
                    f"No longer found: {st['missing']:,}")
             if st["status"] != "completed":
                 msg = f"Scan {st['status']}.\n\n" + msg

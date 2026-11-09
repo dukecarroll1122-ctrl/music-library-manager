@@ -4,7 +4,7 @@ import json
 
 from . import analysis, duplicates
 
-TRACK_COLS = ["path", "title", "artist", "albumartist", "album", "genre", "year", "track", "track_total", "disc",
+TRACK_COLS = ["path", "class", "status", "status_detail", "title", "artist", "albumartist", "album", "genre", "year", "track", "track_total", "disc",
               "duration", "format", "codec", "bitrate", "sample_rate", "bits", "channels", "size", "has_art",
               "art_w", "art_h", "readable", "error"]
 
@@ -46,6 +46,25 @@ def _dups(conn):
     return rows
 
 
+def _diagnostics(conn):
+    """Every file that is not plainly healthy audio, plus files whose length needed ffprobe or whose tags failed."""
+    kinds = {}
+    for tid, kind in conn.execute("SELECT track_id, kind FROM issues"):
+        kinds.setdefault(tid, []).append(kind)
+    rows = []
+    for r in conn.execute("SELECT * FROM tracks WHERE missing=0 AND (coalesce(status,'') <> 'ok' "
+                          "OR diag LIKE 'Fragmented MP4%' OR coalesce(error,'') <> '') ORDER BY path"):
+        rows.append(dict(path=r["path"], format=r["format"], codec=r["codec"],
+                         inspection_result=analysis.classify(r["status"], kinds.get(r["id"], [])),
+                         audio_status=r["status"] or "not inspected",
+                         error_message=r["status_detail"] or r["error"] or "",
+                         inspection_notes=r["diag"] or "", duration=round(r["duration"] or 0, 1),
+                         size=r["size"]))
+    order = {c: i for i, c in enumerate(reversed(analysis.CLASSES))}
+    rows.sort(key=lambda d: (order[d["inspection_result"]], d["path"]))
+    return rows
+
+
 REPORTS = {
     "Complete music inventory": lambda c: [{k: r[k] for k in TRACK_COLS} for r in analysis.query_tracks(c)],
     "Artist list": lambda c: [dict(r) for r in c.execute("SELECT * FROM artists ORDER BY name")],
@@ -54,6 +73,7 @@ REPORTS = {
     "Metadata errors report": lambda c: _issue_rows(c, ["suspicious", "corrupt"]),
     "Duplicate report": _dups,
     "Audio quality report": _quality,
+    "Audio diagnostics report": _diagnostics,
 }
 
 

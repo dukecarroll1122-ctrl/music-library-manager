@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS tracks(
   disc INTEGER, disc_total INTEGER, duration REAL, bitrate INTEGER, sample_rate INTEGER, channels INTEGER,
   bits INTEGER, has_art INTEGER DEFAULT 0, art_hash TEXT, art_w INTEGER, art_h INTEGER, art_mime TEXT,
   readable INTEGER DEFAULT 1, error TEXT, hash TEXT, hash_key TEXT, fingerprint TEXT, acoustid_rec TEXT,
-  missing INTEGER DEFAULT 0, scanned_at REAL);
+  missing INTEGER DEFAULT 0, scanned_at REAL, status TEXT, status_detail TEXT, diag TEXT);
 CREATE INDEX IF NOT EXISTS ix_tracks_artist ON tracks(artist);
 CREATE INDEX IF NOT EXISTS ix_tracks_album ON tracks(album);
 CREATE INDEX IF NOT EXISTS ix_tracks_root ON tracks(root);
@@ -58,6 +58,11 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(tracks)")}
+    for col in ("status", "status_detail", "diag"):  # additive migration: existing rows and data are kept
+        if col not in have:
+            conn.execute(f"ALTER TABLE tracks ADD COLUMN {col} TEXT")
+    conn.commit()
     return conn
 
 

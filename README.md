@@ -52,6 +52,34 @@ read-only. They skip the macOS `._*` AppleDouble files that show up on FAT/exFAT
 files whose size or modification time changed. If a drive is unplugged, its songs are kept and marked as not
 found instead of being deleted, and scanning a disconnected drive shows a clear message.
 
+### File health classes
+Every song is put into exactly one class. A missing field, a tag-parsing problem or an unsupported codec is never
+reported as corruption.
+
+| Class | Meaning |
+|---|---|
+| Healthy | Audio inspected fine, no metadata problems |
+| Metadata issues | Audio fine. Missing or suspicious tags, or tags that only ffprobe could read |
+| Unsupported format or codec | No audio stream, or a codec that can't be decoded (e.g. DRM-protected `.m4p`) |
+| Partial decoding warning | A full decode reached the end, but some packets were damaged (possible brief glitches) |
+| Potentially corrupted | Neither the tag reader nor ffprobe could read the audio. Not yet confirmed |
+| Confirmed decoding failure | A full ffmpeg decode failed (**Verify Audio**) |
+| File unavailable | The file couldn't be opened (permissions, I/O error, removed mid-scan) |
+
+Scans check headers only (fast). **Metadata Inspector → Verify Audio** runs a full decode and saves the result, which
+is the only way to get "Partial decoding warning" or "Confirmed decoding failure".
+
+**Fragmented MP4 (.m4a):** many downloaded or streamed `.m4a` files store their audio in `moof`/`mdat` fragments.
+Mutagen, the tag reader, only counts audio inside the `moov` header, so it reports 0 or a too-short length. For
+these files the duration comes from ffprobe, and the Inspector notes "Fragmented MP4". Tag edits on them are safe:
+the tests check that the audio checksum is unchanged.
+
+**Reports → Audio diagnostics report** lists the path, format, error message and inspection result for every file
+that isn't plainly healthy or needed a fallback reader.
+
+Databases created by earlier versions are migrated in place: new columns are added and no rows are removed. Old
+rows get an audio status on the next scan.
+
 ### How MusicBrainz results are treated
 Songs are matched **album by album**: one release search per album folder, then up to three candidate releases
 are compared track-by-track (title, duration, track position). The release that fits your album best wins, and
@@ -100,10 +128,11 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 25 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 36 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
-input validation, the suggestion workflow, organisation without overwriting, MusicBrainz grading and album-level
+input validation, the suggestion workflow, every file health class (including fragmented MP4 and old-database
+migration), organisation without overwriting, MusicBrainz grading and album-level
 release matching (offline fixtures), report exports, and a headless GUI smoke test of every page.
 
 ## Project layout

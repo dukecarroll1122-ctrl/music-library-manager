@@ -6,8 +6,12 @@ from collections import defaultdict
 
 # kind -> (category, severity, label)
 KINDS = {
-    "unreadable": ("corrupt", "error", "Unreadable / corrupted file"),
-    "zero_duration": ("corrupt", "error", "Zero duration"),
+    "unavailable": ("unavailable", "error", "File unavailable"),
+    "decode_failure": ("corrupt", "error", "Confirmed decoding failure"),
+    "potentially_corrupted": ("corrupt", "error", "Potentially corrupted"),
+    "unsupported": ("unsupported", "warning", "Unsupported format or codec"),
+    "partial": ("partial", "review", "Partial decoding warning"),
+    "tag_parse": ("suspicious", "review", "Tags or artwork could not be read"),
     "missing_title": ("missing", "warning", "Missing title"),
     "missing_artist": ("missing", "warning", "Missing artist"),
     "missing_album": ("missing", "warning", "Missing album"),
@@ -26,7 +30,26 @@ KINDS = {
 }
 SEVERITY_ORDER = {"error": 3, "warning": 2, "review": 1, "info": 0}
 PROBLEMS = {"Missing metadata": "missing", "Suspicious metadata": "suspicious", "Missing artwork": "art",
-            "Corrupted / unreadable": "corrupt", "Duplicates": "duplicate", "Any issue": "any"}
+            "Potentially corrupted / failed decode": "corrupt", "Unsupported format or codec": "unsupported",
+            "Partial decoding warning": "partial", "File unavailable": "unavailable",
+            "Duplicates": "duplicate", "Any issue": "any"}
+
+# The seven inspection classes shown to the user, worst last
+CLASSES = ("Healthy", "Metadata issues", "Unsupported format or codec", "Partial decoding warning",
+           "Potentially corrupted", "Confirmed decoding failure", "File unavailable")
+STATUS_CLASS = {"unavailable": "File unavailable", "decode_failure": "Confirmed decoding failure",
+                "potentially_corrupted": "Potentially corrupted", "partial": "Partial decoding warning",
+                "unsupported": "Unsupported format or codec"}
+STATUS_KIND = {"unavailable": "unavailable", "decode_failure": "decode_failure",
+               "potentially_corrupted": "potentially_corrupted", "partial": "partial", "unsupported": "unsupported"}
+
+
+def classify(status, issue_kinds):
+    """One of CLASSES. Audio status wins; a playable file with metadata problems is 'Metadata issues'."""
+    if status in STATUS_CLASS:
+        return STATUS_CLASS[status]
+    meta = any(KINDS[k][0] in ("missing", "suspicious") and KINDS[k][1] != "info" for k in issue_kinds if k in KINDS)
+    return "Metadata issues" if meta else "Healthy"
 
 PLACEHOLDERS = {"unknown", "unknown artist", "unknown album", "untitled", "no title", "track", "audio track",
                 "n/a", "none", "artist", "album", "title", "<unknown>", "unknown title", "new recording"}
@@ -43,10 +66,14 @@ def year_of(s):
 def track_issues(t):
     """Per-track rules. t is a dict/Row of a track."""
     out = []
-    if not t["readable"]:
-        return [("unreadable", t["error"] or "")]
-    if not (t["duration"] or 0) > 0:
-        out.append(("zero_duration", t["error"] or ""))
+    status = t["status"] if "status" in t.keys() else None
+    if status in STATUS_KIND:
+        out.append((STATUS_KIND[status], t["status_detail"] or ""))
+    if status in ("unavailable", "potentially_corrupted", "decode_failure") and not any(t[f] for f in
+                                                                                       ("title", "artist", "album")):
+        return out  # nothing was read, so "missing tag" findings would be noise
+    if t["error"]:
+        out.append(("tag_parse", t["error"]))
     for f in ("title", "artist", "album"):
         v = (t[f] or "").strip()
         if not v:
@@ -167,18 +194,23 @@ def stats(conn):
     s["by_genre"] = top("genre")
     s["by_format"] = [(r[0], r[1]) for r in conn.execute(
         f"SELECT format, count(*) n {live} GROUP BY format ORDER BY n DESC")]
-    # metadata health: worst severity per track
-    sev = {r[0]: r[1] for r in conn.execute(
-        "SELECT track_id, max(CASE severity WHEN 'error' THEN 3 WHEN 'warning' THEN 2 WHEN 'review' THEN 1 "
-        "ELSE 0 END) FROM issues GROUP BY track_id")}
-    ids = [r[0] for r in conn.execute(f"SELECT id {live}")]
-    counts = defaultdict(int)
-    for i in ids:
-        counts[sev.get(i, 0)] += 1
-    s["by_health"] = [("Healthy", counts[0]), ("Needs review", counts[1]), ("Missing metadata", counts[2]),
-                      ("Corrupted", counts[3])]
+    s["classes"] = class_counts(conn)
+    s["by_health"] = [(c, s["classes"][c]) for c in CLASSES]
+    s["unsupported"] = s["classes"]["Unsupported format or codec"]
+    s["partial"] = s["classes"]["Partial decoding warning"]
+    s["unavailable"] = s["classes"]["File unavailable"]
     s["scans"] = [dict(r) for r in conn.execute("SELECT * FROM scans ORDER BY id DESC LIMIT 8")]
     return s
+
+
+def class_counts(conn):
+    kinds = defaultdict(list)
+    for tid, kind in conn.execute("SELECT track_id, kind FROM issues"):
+        kinds[tid].append(kind)
+    counts = {c: 0 for c in CLASSES}
+    for tid, status in conn.execute("SELECT id, status FROM tracks WHERE missing=0"):
+        counts[classify(status, kinds[tid])] += 1
+    return counts
 
 
 def query_tracks(conn, f=None, limit=None):
@@ -208,7 +240,7 @@ def query_tracks(conn, f=None, limit=None):
         where.append("EXISTS(SELECT 1 FROM issues i WHERE i.track_id=t.id AND i.kind=?)")
         args.append(f["issue_kind"])
     p = f.get("problem")
-    if p in ("missing", "suspicious", "corrupt"):
+    if p in ("missing", "suspicious", "corrupt", "unsupported", "partial", "unavailable"):
         where.append("EXISTS(SELECT 1 FROM issues i WHERE i.track_id=t.id AND i.category=? "
                      "AND i.severity<>'info')")
         args.append(p)
@@ -230,6 +262,7 @@ def query_tracks(conn, f=None, limit=None):
         kinds = [k for k in (d["issue_kinds"] or "").split(",") if k]
         d["health"] = health(kinds)
         d["name"] = d["title"] or os.path.basename(d["path"])
+        d["class"] = classify(d.get("status"), kinds)
         d["issues_text"] = ", ".join(KINDS[k][2] for k in kinds if KINDS[k][1] != "info") or \
             ("Missing artwork" if "missing_art" in kinds else "")
         out.append(d)

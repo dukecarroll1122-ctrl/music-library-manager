@@ -8,3 +8,4 @@ __pycache__/
 *.db-shm
 *.db-wal
 .DS_Store
+audio_diagnostics_report.csv
