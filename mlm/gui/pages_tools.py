@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGridLayout, Q
                                QListWidget, QListWidgetItem, QSplitter, QTabWidget, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import db, duplicates, online, organize, repair, reports, scanner
+from .. import artfetch, db, duplicates, online, organize, repair, reports, scanner
 from . import widgets as W
 from .pages_main import Page, button
 from .pages_meta import clear_layout, section
@@ -22,19 +22,20 @@ def placeholder_icon(size=150):
 
 # ------------------------------------------------------------------ Artwork
 class ArtworkPage(Page):
+    """Two tabs: Missing Artwork (batch queue across all sources) and Browse Albums (one album at a time)."""
+
     def __init__(self, app):
         super().__init__(app)
-        self.outer.addWidget(W.page_header("Artwork Manager", "Find covers for everything missing artwork at once, "
-                                                              "or browse albums and choose covers one by one."))
+        self.outer.addWidget(W.page_header(
+            "Artwork Manager", "Find covers for everything missing artwork across MusicBrainz, iTunes, Deezer, "
+            "Discogs and fanart.tv — or import your own. You review every cover before anything is changed."))
         from .bulk_art import BulkArtTab
         self.tabs = QTabWidget()
         self.bulk = BulkArtTab(app)
-        self.tabs.addTab(self.bulk, "Find Missing Artwork")
+        self.tabs.addTab(self.bulk, "Missing Artwork")
         browse = QWidget()
-        self.browse_l = QVBoxLayout(browse)
-        self.browse_l.setContentsMargins(0, 10, 0, 0)
-        self.tabs.addTab(browse, "Browse Albums")
-        self.outer.addWidget(self.tabs, 1)
+        bl = QVBoxLayout(browse)
+        bl.setContentsMargins(0, 10, 0, 0)
         self.filter = QComboBox()
         self.filter.addItems(["Missing artwork", "Partial or mixed artwork", "All albums"])
         self.filter.currentTextChanged.connect(lambda _: self.reload())
@@ -51,6 +52,7 @@ class ArtworkPage(Page):
         self.albums.setWordWrap(True)
         self.albums.setUniformItemSizes(True)
         self.albums.currentItemChanged.connect(lambda *_: self.show_album())
+        self.albums.itemDoubleClicked.connect(lambda _: self.open_search())
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
@@ -58,53 +60,34 @@ class ArtworkPage(Page):
         ll.addWidget(self.albums, 1)
         self.count = W.label("", "muted")
         ll.addWidget(self.count)
-
         right = QWidget()
-        self.rl = QVBoxLayout(right)
-        self.rl.setContentsMargins(8, 0, 0, 0)
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(12, 0, 0, 0)
         self.title = W.label("Select an album", "h2")
         self.title.setWordWrap(True)
-        self.rl.addWidget(self.title)
-        self.cur_img, self.new_img = QLabel(), QLabel()
-        for lab in (self.cur_img, self.new_img):
-            lab.setFixedSize(230, 230)
-            lab.setAlignment(Qt.AlignCenter)
-            lab.setStyleSheet(f"background: {W.CARD}; border: 1px solid {W.BORDER}; border-radius: 10px; "
-                              f"color: {W.MUTED};")
-        self.cur_info, self.new_info = W.label("", "muted", True), W.label("", "muted", True)
-        cur_box = QWidget()
-        cb = QVBoxLayout(cur_box)
-        cb.setContentsMargins(0, 0, 0, 0)
-        cb.addWidget(W.label("Current", "h2"))
-        cb.addWidget(self.cur_img)
-        cb.addWidget(self.cur_info)
-        new_box = QWidget()
-        nb = QVBoxLayout(new_box)
-        nb.setContentsMargins(0, 0, 0, 0)
-        nb.addWidget(W.label("Proposed", "h2"))
-        nb.addWidget(self.new_img)
-        nb.addWidget(self.new_info)
-        self.rl.addWidget(W.hbox(cur_box, new_box, None, spacing=18))
-        self.rl.addWidget(W.hbox(button("Search Cover Art Archive", self.search_online, "primary"),
-                                 button("Choose Image File…", self.choose_file), None))
-        self.cands = QListWidget()
-        self.cands.setViewMode(QListView.IconMode)
-        self.cands.setIconSize(QSize(110, 110))
-        self.cands.setGridSize(QSize(132, 168))
-        self.cands.setResizeMode(QListView.Adjust)
-        self.cands.setMovement(QListView.Static)
-        self.cands.setWordWrap(True)
-        self.cands.setMinimumHeight(190)
-        self.cands.itemClicked.connect(self.pick_candidate)
-        self.rl.addWidget(self.cands, 1)
-        self.only_missing = QCheckBox("Only add to songs that have no artwork")
-        self.rl.addWidget(W.hbox(self.only_missing, None, button("Apply to Album…", self.apply, "primary")))
+        rl.addWidget(self.title)
+        self.cur_img = QLabel()
+        self.cur_img.setFixedSize(260, 260)
+        self.cur_img.setAlignment(Qt.AlignCenter)
+        self.cur_img.setStyleSheet(f"background: {W.CARD}; border: 1px solid {W.BORDER}; border-radius: 10px; "
+                                   f"color: {W.MUTED};")
+        rl.addWidget(self.cur_img)
+        self.cur_info = QLabel()
+        self.cur_info.setWordWrap(True)
+        self.cur_info.setTextFormat(Qt.RichText)
+        rl.addWidget(self.cur_info)
+        rl.addWidget(button("Search All Sources…", self.open_search, "primary"))
+        rl.addWidget(button("Import Your Own Artwork…", lambda: self.open_search(1)))
+        rl.addWidget(W.label("Opens the gallery: search every source (including a video-game soundtrack mode), "
+                             "preview, compare, then apply to the whole album or to selected songs.", "muted", True))
+        rl.addStretch(1)
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(right)
-        split.setSizes([620, 560])
-        self.browse_l.addWidget(split, 1)
-        self.proposed = None  # (bytes, mime, (w, h))
+        split.setSizes([700, 420])
+        bl.addWidget(split, 1)
+        self.tabs.addTab(browse, "Browse Albums")
+        self.outer.addWidget(self.tabs, 1)
 
     def refresh(self):
         self.bulk.refresh()
@@ -145,11 +128,6 @@ class ArtworkPage(Page):
 
     def show_album(self):
         a = self.album()
-        self.cands.clear()
-        self.proposed = None
-        self.new_img.clear()
-        self.new_img.setText("Search or choose\nan image")
-        self.new_info.setText("")
         if not a:
             self.title.setText("Select an album")
             self.cur_img.clear()
@@ -157,90 +135,34 @@ class ArtworkPage(Page):
             return
         self.title.setText(f"{a['album']}  —  {a['aa'] or 'Unknown artist'}")
         ids = [int(i) for i in a["ids"].split(",")]
-        # load the real embedded image from the first track that has one
         r = self.app.conn.execute(f"SELECT path, art_w, art_h, art_mime FROM tracks WHERE has_art=1 AND id IN "
                                   f"({','.join('?' * len(ids))}) LIMIT 1", ids).fetchone()
         self.cur_img.clear()
+        info = f"{a['arts']} of {a['n']} songs have artwork"
         if r:
             import mutagen
             from .. import tags
             try:
-                art = tags.get_art(mutagen.File(r["path"]))
-                self.cur_img.setPixmap(W.pixmap(art[0], 226))
+                self.cur_img.setPixmap(W.pixmap(tags.get_art(mutagen.File(r["path"]))[0], 256))
             except Exception:
                 self.cur_img.setText("Artwork unreadable")
-            self.cur_info.setText(f"{r['art_w']}×{r['art_h']} {r['art_mime'] or ''}\n"
-                                  f"{a['arts']} of {a['n']} songs have artwork"
-                                  + (f" ({a['variants']} different images)" if a["variants"] > 1 else ""))
+            info = f"{r['art_w']}×{r['art_h']} {r['art_mime'] or ''}<br>" + info + (
+                f" ({a['variants']} different images)" if a["variants"] > 1 else "")
         else:
             self.cur_img.setText("No artwork")
-            self.cur_info.setText(f"0 of {a['n']} songs have artwork")
+        self.cur_info.setText(f"<span style='color:{W.MUTED}'>{info}</span>")
 
-    def search_online(self):
+    def open_search(self, tab=0):
         a = self.album()
         if not a:
             return W.info(self, "No album", "Select an album first.")
-
-        def done(results):
-            self.cands.clear()
-            for c in results:
-                it = QListWidgetItem(QIcon(W.pixmap(c["thumb_data"], 110)),
-                                     f"{c['title']}\n{c['date'][:4]} {c['country']}".strip())
-                it.setToolTip(f"{c['title']} — {c['artist']}\n{c['date']} {c['country']}\nRelease group {c['rg']}")
-                it.setData(Qt.UserRole, c)
-                self.cands.addItem(it)
-            if not results:
-                W.info(self, "No artwork found", "The Cover Art Archive has no front cover for matching releases. "
-                                                 "You can choose an image file instead.")
-        self.app.run_task("Searching artwork", online.search_artwork, a["aa"] or "", a["album"], on_done=done,
-                          refresh=False)
-
-    def pick_candidate(self, item):
-        c = item.data(Qt.UserRole)
-
-        def done(res):
-            self.set_proposed(*res, source=f"Cover Art Archive: {c['title']} ({c['date'][:4]})")
-        self.app.run_task("Downloading full-size artwork", online.download_image, c["full"], on_done=done,
-                          refresh=False)
-
-    def choose_file(self):
-        if not self.album():
-            return W.info(self, "No album", "Select an album first.")
-        path, _ = QFileDialog.getOpenFileName(self, "Choose cover image", os.path.expanduser("~/Pictures"),
-                                              "Images (*.jpg *.jpeg *.png *.webp *.bmp *.gif *.tif *.tiff)")
-        if path:
-            try:
-                with open(path, "rb") as fh:
-                    self.set_proposed(*online.prepare_image(fh.read()), source=os.path.basename(path))
-            except (OSError, ValueError) as e:
-                W.error(self, "Cannot use image", str(e))
-
-    def set_proposed(self, data, mime, size, source=""):
-        self.proposed = (data, mime, size)
-        self.new_img.setPixmap(W.pixmap(data, 226))
-        warn = "  ⚠ low resolution" if max(size) < 500 else ""
-        self.new_info.setText(f"{size[0]}×{size[1]} {mime} · {len(data) / 1024:.0f} KB{warn}\n{source}")
-
-    def apply(self):
-        a = self.album()
-        if not a or not self.proposed:
-            return W.info(self, "Nothing to apply", "Select an album and a proposed image first.")
-        ids = [int(i) for i in a["ids"].split(",")]
-        if self.only_missing.isChecked():
-            ids = [r[0] for r in self.app.conn.execute(
-                f"SELECT id FROM tracks WHERE has_art=0 AND id IN ({','.join('?' * len(ids))})", ids)]
-        if not ids:
-            return W.info(self, "Nothing to do", "Every song in this album already has artwork.")
-        if not self.app.require_edit():
+        from .art_search import SearchDialog
+        g = artfetch.group_for_album(self.app.conn, a["aa"], a["album"])
+        if not g:
             return
-        data, mime, size = self.proposed
-        if not W.confirm(self, "Replace album artwork?",
-                         f"Embed the {size[0]}×{size[1]} image in {len(ids)} song(s) of “{a['album']}”?\n\n"
-                         "Existing artwork is backed up and can be restored from Repair history."):
-            return
-        self.app.run_task("Applying artwork", repair.apply_changes, {i: {"artwork": (data, mime)} for i in ids},
-                          self.app.edit_mode, note=f"artwork: {a['album']}",
-                          on_done=lambda res: W.info(self, "Artwork applied", W.summarize(res)))
+        SearchDialog(self.app, g, start_tab=tab).exec()
+        self.reload()
+        self.bulk.reload()
 
 
 # ------------------------------------------------------------------ Duplicates
@@ -536,12 +458,18 @@ class SettingsPage(Page):
     def __init__(self, app):
         super().__init__(app)
         self.outer.addWidget(W.page_header("Settings"))
+        self.tabs = QTabWidget()
+        general = QWidget()
+        gl = QVBoxLayout(general)
+        gl.setContentsMargins(0, 10, 0, 0)
+        self.tabs.addTab(general, "General")
+        self.outer.addWidget(self.tabs, 1)
         fr, lay = section("Operating mode")
         self.mode_label = W.label("", wrap=True)
         lay.addWidget(self.mode_label)
         lay.addWidget(W.hbox(button("Toggle Mode", app.toggle_mode), None))
         app.mode_changed.connect(lambda _: self.refresh())
-        self.outer.addWidget(fr)
+        gl.addWidget(fr)
 
         fr, lay = section("Online services")
         self.contact = QLineEdit()
@@ -569,7 +497,7 @@ class SettingsPage(Page):
                               "acoustid.org/new-application</a>, paste the key above, and install Chromaprint: "
                               "<code>brew install chromaprint</code>.", "muted", True))
         lay.itemAt(lay.count() - 1).widget().setOpenExternalLinks(True)
-        self.outer.addWidget(fr)
+        gl.addWidget(fr)
 
         fr, lay = section("Library & data")
         self.roots = QListWidget()
@@ -583,8 +511,11 @@ class SettingsPage(Page):
         lay.addWidget(self.data_label)
         lay.addWidget(W.hbox(button("Open Data Folder", lambda: subprocess.Popen(["open", str(db.data_dir())])),
                              button("Clear MusicBrainz Cache", self.clear_cache), None))
-        self.outer.addWidget(fr)
-        self.outer.addStretch(1)
+        gl.addWidget(fr)
+        gl.addStretch(1)
+        from .art_widgets import ArtSettings
+        self.art = ArtSettings(app)
+        self.tabs.addTab(self.art, "Artwork sources")
 
     def save_key(self):
         new = self.acoustid.text().strip()
@@ -609,6 +540,7 @@ class SettingsPage(Page):
 
     def refresh(self):
         c = self.app.conn
+        self.art.refresh()
         self.mode_label.setText(
             "<b style='color:#f5a524'>Edit Mode</b> — approved changes can be written to files." if self.app.edit_mode
             else "<b style='color:#3ecf8e'>Read-Only Mode</b> (default) — scanning, inspection and reports only. "

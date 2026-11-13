@@ -3,3 +3,4 @@ mutagen>=1.47
 Pillow>=10.0
 certifi
 pytest
+pykakasi

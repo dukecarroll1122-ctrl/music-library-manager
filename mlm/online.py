@@ -24,7 +24,10 @@ DEFAULT_UA = "MusicLibraryManager/1.0 ( local macOS desktop app )"
 CACHE_DAYS = 30
 # Minimum seconds between requests per host (MusicBrainz allows ~1/s; AcoustID 3/s)
 INTERVAL = {"musicbrainz.org": 1.1, "api.acoustid.org": 0.35, "coverartarchive.org": 0.25,
-            "itunes.apple.com": 3.1}  # Apple asks for ~20 requests/minute
+            "itunes.apple.com": 3.1,  # Apple asks for ~20 requests/minute
+            "api.deezer.com": 0.3,  # Deezer: 50 requests / 5 s
+            "api.discogs.com": 1.1,  # Discogs: 60 requests/minute with a token
+            "webservice.fanart.tv": 0.6}
 
 VERIFIED, HIGH, POSSIBLE, REVIEW, NONE = ("Verified", "High-confidence match", "Possible match",
                                           "Needs manual review", "No match found")
@@ -56,7 +59,7 @@ def user_agent(conn):
     return f"MusicLibraryManager/1.0 ( {contact} )" if contact else DEFAULT_UA
 
 
-def http(url, ua, data=None, timeout=25):
+def http(url, ua, data=None, timeout=25, headers=None, max_bytes=None, truncate=False):
     host = urllib.parse.urlparse(url).hostname or ""
     lock = _locks.get(host)
     if lock:
@@ -65,11 +68,19 @@ def http(url, ua, data=None, timeout=25):
             if wait > 0:
                 time.sleep(wait)
             _last[host] = time.time()
-    req = urllib.request.Request(url, data=data, headers={"User-Agent": ua, "Accept": "application/json"})
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": ua, "Accept": "application/json",
+                                                           **(headers or {})})
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as r:
-                return r.read()
+                if max_bytes is None:
+                    return r.read()
+                body = r.read(max_bytes + 1)  # partial reads (Range) and size caps for user-supplied URLs
+                if len(body) > max_bytes:
+                    if truncate:  # servers that ignore Range: keep the first bytes (enough for image headers)
+                        return body[:max_bytes]
+                    raise NetworkError(f"Download is larger than {max_bytes // (1024 * 1024)} MB")
+                return body
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
@@ -88,11 +99,14 @@ def http(url, ua, data=None, timeout=25):
             raise NetworkError(f"Cannot reach {host} — check your internet connection ({getattr(e, 'reason', e)})")
 
 
-def cached_json(conn, url, ua):
+def cached_json(conn, url, ua, headers=None, max_age=None):
+    """JSON GET with a 30-day cache keyed by URL (credentials travel in headers, never in the cache key).
+    max_age=0 forces a fresh request (used when retrying searches that found nothing)."""
+    age = CACHE_DAYS * 86400 if max_age is None else max_age
     r = conn.execute("SELECT body, fetched FROM http_cache WHERE url=?", (url,)).fetchone()
-    if r and time.time() - r["fetched"] < CACHE_DAYS * 86400:
+    if r and age and time.time() - r["fetched"] < age:
         return json.loads(r["body"])
-    body = http(url, ua)
+    body = http(url, ua, headers=headers)
     if body is None:
         return {}
     conn.execute("INSERT OR REPLACE INTO http_cache VALUES(?,?,?)", (url, body, time.time()))

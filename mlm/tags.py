@@ -296,3 +296,41 @@ def _short(v):
     if len(s) > 300:
         s = s[:300] + "…"
     return s
+
+
+def read_extra(f):
+    """Identifiers and credits used for artwork matching: MusicBrainz release / release-group IDs, catalog
+    number, label (publisher) and composer. Empty strings when absent."""
+    out = dict(mb_release_id="", mb_rg_id="", catalog="", label="", composer="")
+    t = getattr(f, "tags", None)
+    if t is None:
+        return out
+    kind = tag_kind(f)
+    keys = dict(mb_release_id=("MusicBrainz Album Id", "musicbrainz_albumid"),
+                mb_rg_id=("MusicBrainz Release Group Id", "musicbrainz_releasegroupid"),
+                catalog=("CATALOGNUMBER", "catalognumber"), label=("LABEL", "label", "organization", "publisher"),
+                composer=("composer",))
+    try:
+        for field, names in keys.items():
+            for n in names:
+                v = ""
+                if kind == "id3":
+                    fr = t.get(f"TXXX:{n}") or t.get(f"TXXX:{n.upper()}")
+                    if fr is None and field == "label":
+                        fr = t.get("TPUB")
+                    if fr is None and field == "composer":
+                        fr = t.get("TCOM")
+                    v = str(fr.text[0]) if fr is not None and getattr(fr, "text", None) else ""
+                elif kind == "mp4":
+                    mk = {"composer": "\xa9wrt"}.get(field) or f"----:com.apple.iTunes:{n}"
+                    raw = t.get(mk)
+                    v = (raw[0].decode("utf-8", "replace") if isinstance(raw[0], (bytes, bytearray)) else str(raw[0])) \
+                        if raw else ""
+                elif kind in ("vorbis", "ape"):
+                    raw = t.get(n) or t.get(n.upper())
+                    v = str(raw[0]) if isinstance(raw, list) and raw else str(raw or "")
+                if v and not out[field]:
+                    out[field] = v.strip()
+    except Exception:
+        pass
+    return out

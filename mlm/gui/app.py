@@ -259,10 +259,7 @@ class MainWindow(QMainWindow):
         e.accept()
 
 
-def main():
-    app = QApplication(sys.argv)
-    app.setApplicationName("Music Library Manager")
-    app.setOrganizationName("MusicLibraryManager")
+def apply_theme(app):
     app.setStyle("Fusion")
     from PySide6.QtGui import QColor, QPalette
     pal = QPalette()
@@ -274,9 +271,21 @@ def main():
         pal.setColor(role, QColor(col))
     app.setPalette(pal)
     app.setStyleSheet(W.STYLE)
+
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("Music Library Manager")
+    app.setOrganizationName("MusicLibraryManager")
+    apply_theme(app)
     icon = os.path.join(os.path.dirname(__file__), "icon.png")
     if os.path.exists(icon):
         app.setWindowIcon(QIcon(icon))
     win = MainWindow()
     win.show()
+    if "--rescan" in sys.argv and win.conn.execute("SELECT 1 FROM scans").fetchone():
+        # incremental: only new or changed files are read; needs at least one earlier scan to know the folders
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(800, win.pages["dashboard"].rescan)
     sys.exit(app.exec())

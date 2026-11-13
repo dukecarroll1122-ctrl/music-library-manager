@@ -187,6 +187,12 @@ def move_files(conn, moves, edit_mode, note="move", progress=None, cancel=None):
     return dict(batch=batch, applied=moved, errors=errors)
 
 
+def _sha1(path):
+    import hashlib
+    with open(path, "rb") as fh:
+        return hashlib.sha1(fh.read()).hexdigest()
+
+
 def batches(conn):
     return [dict(r) for r in conn.execute(
         "SELECT batch, min(ts) AS ts, count(*) AS changes, count(DISTINCT track_id) AS tracks, "
@@ -200,7 +206,18 @@ def undo_batch(conn, batch, edit_mode, progress=None, cancel=None):
     errors, done = [], []
     per_track = {}
     for r in rows:
-        if r["field"] == "path":
+        if r["field"] == "folder_art":  # folder.jpg / cover.jpg written by the artwork manager
+            try:
+                if r["backup"] and os.path.isfile(r["backup"]):
+                    shutil.copy2(r["backup"], r["path"])  # put the previous image back
+                elif os.path.isfile(r["path"]) and _sha1(r["path"]) == r["new"]:
+                    os.remove(r["path"])  # only the file we created, and only if nobody changed it since
+                else:
+                    raise ValueError(f"{r['path']} was changed after it was created — left alone")
+                done.append(r["id"])
+            except Exception as e:
+                errors.append(str(e))
+        elif r["field"] == "path":
             try:
                 if not os.path.isfile(r["new"]):
                     raise FileNotFoundError(f"{r['new']} no longer exists")

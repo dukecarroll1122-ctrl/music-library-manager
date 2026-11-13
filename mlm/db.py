@@ -43,6 +43,12 @@ CREATE INDEX IF NOT EXISTS ix_history_batch ON history(batch);
 CREATE TABLE IF NOT EXISTS dup_groups(id INTEGER PRIMARY KEY, method TEXT, key TEXT);
 CREATE TABLE IF NOT EXISTS dup_members(group_id INTEGER, track_id INTEGER, keep INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS art_images(url TEXT PRIMARY KEY, path TEXT, w INTEGER, h INTEGER, bytes INTEGER,
+  mime TEXT, fetched REAL);
+CREATE TABLE IF NOT EXISTS art_probe(url TEXT PRIMARY KEY, w INTEGER, h INTEGER, fetched REAL);
+CREATE TABLE IF NOT EXISTS art_provenance(id INTEGER PRIMARY KEY, ts REAL, batch TEXT, job_id INTEGER, provider TEXT,
+  source_url TEXT, release_id TEXT, rg_id TEXT, title TEXT, artist TEXT, confidence TEXT, w INTEGER, h INTEGER,
+  bytes INTEGER, applied_as TEXT, dest TEXT, track_ids TEXT);
 CREATE TABLE IF NOT EXISTS conversions(id INTEGER PRIMARY KEY, track_id INTEGER, src TEXT, dst TEXT,
   src_format TEXT, dst_format TEXT, settings TEXT, status TEXT, error TEXT, src_size INTEGER, dst_size INTEGER,
   started REAL, finished REAL);
