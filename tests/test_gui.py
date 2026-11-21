@@ -104,3 +104,17 @@ def test_saving_acoustid_key_refreshes_verification_banner(win):
     s.save_key()
     win.go("verification")
     assert not v.banner.isVisibleTo(win) or "No AcoustID API key" not in v.banner.text()
+
+
+def test_missing_ffmpeg_banner(win, monkeypatch):
+    from mlm import scanner
+    win.go("dashboard")
+    d = win.pages["dashboard"]
+    d.refresh()
+    assert d.deps.isVisibleTo(win) == (not scanner.tool("fpcalc"))      # only the optional-tool note, or nothing
+    monkeypatch.setattr(scanner, "tool", lambda name: None)
+    d.refresh()
+    assert d.deps.isVisibleTo(win) and "brew install ffmpeg" in d.deps.text()
+    monkeypatch.setattr(scanner, "tool", lambda name: "/x/" + name)
+    d.refresh()
+    assert not d.deps.isVisibleTo(win)

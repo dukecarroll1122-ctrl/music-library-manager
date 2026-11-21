@@ -53,6 +53,10 @@ class DashboardPage(Page):
                                                   "metadata health."), None,
                                     button("Rescan Library", self.rescan),
                                     button("Scan Folder…", lambda: app.scan_folder(), "primary")))
+        self.deps = QLabel()
+        self.deps.setWordWrap(True)
+        self.deps.setTextFormat(Qt.RichText)
+        self.outer.addWidget(self.deps)
         self.outer.addWidget(scroll, 1)
 
         specs = [("songs", "Total songs", W.BLUE, None), ("artists", "Artists", W.VIOLET, None),
@@ -94,6 +98,18 @@ class DashboardPage(Page):
         lay.addStretch(1)
 
     def refresh(self):
+        from .. import scanner
+        miss = [n for n in ("ffmpeg", "ffprobe") if not scanner.tool(n)]
+        text = ""
+        if miss:  # without ffprobe, fragmented .m4a lengths, conversion and the audio check can't work
+            text = (f"<span style='color:{W.RED}'>FFmpeg isn't installed.</span> Conversion, audio checks and the "
+                    "lengths of some .m4a files need it. In Terminal run: <code>brew install ffmpeg</code> "
+                    "(Homebrew: brew.sh), then reopen the app.")
+        elif not scanner.tool("fpcalc"):
+            text = (f"<span style='color:{W.MUTED}'>Optional: Audio Verification needs Chromaprint. "
+                    "In Terminal run <code>brew install chromaprint</code>.</span>")
+        self.deps.setText(text)
+        self.deps.setVisible(bool(text))
         s = analysis.stats(self.app.conn)
         n = s["songs"] or 1
         pct = lambda v: f"{v / n:.0%} of songs" if s["songs"] else ""  # noqa: E731

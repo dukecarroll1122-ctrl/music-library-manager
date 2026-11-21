@@ -23,7 +23,8 @@ class MainWindow(QMainWindow):
         self.edit_mode = False  # read-only is the default on every launch
         self.worker = None
         self._on_done = None
-        self.setWindowTitle("Music Library Manager")
+        from .. import __version__
+        self.setWindowTitle(f"Music Library Manager {__version__}")
         self.resize(1360, 860)
         self.setMinimumSize(1080, 680)
 
@@ -278,6 +279,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Music Library Manager")
     app.setOrganizationName("MusicLibraryManager")
+    from .. import __version__
+    app.setApplicationVersion(__version__)
     apply_theme(app)
     icon = os.path.join(os.path.dirname(__file__), "icon.png")
     if os.path.exists(icon):

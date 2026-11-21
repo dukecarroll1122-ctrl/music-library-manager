@@ -7,12 +7,36 @@ find duplicates, organise folders, and export reports.
 **Read-only by default.** Nothing on disk changes until you switch to Edit Mode, approve specific changes, and
 confirm. Every write is backed up, logged and undoable.
 
-## Install & run
+## Download and install (easiest)
 
-Requirements: macOS, Python 3.12+ (tested on 3.13), and optionally `ffmpeg` (`brew install ffmpeg`) for
-deeper audio inspection and corruption checks.
+1. Download **Music-Library-Manager-1.0.0-arm64.dmg** from the
+   [Releases page](https://github.com/dukecarroll1122-ctrl/music-library-manager/releases/latest). It is for
+   Apple Silicon Macs (M1 or newer). The `.zip` holds the same app.
+2. Open the DMG and drag **Music Library Manager** onto **Applications**.
+3. **Unblock it once.** The app is free and unsigned, not notarised by Apple (that needs a paid developer
+   account), so macOS blocks a downloaded copy the first time. In Terminal:
 
 ```bash
+xattr -dr com.apple.quarantine "/Applications/Music Library Manager.app"
+```
+
+   or double-click the app, then open **System Settings → Privacy & Security** and click **Open Anyway**.
+4. Optional but recommended, for conversion and audio checks (needs [Homebrew](https://brew.sh)):
+
+```bash
+brew install ffmpeg chromaprint
+```
+
+The Dashboard tells you if FFmpeg is missing. Then click **Scan Folder…** and pick your music folder, drive or
+SD card.
+
+## Run from source (any Mac with Python 3.12+)
+
+Requirements: macOS, Python 3.12+ (tested on 3.13), and optionally `ffmpeg` (`brew install ffmpeg`).
+
+```bash
+git clone https://github.com/dukecarroll1122-ctrl/music-library-manager.git
+cd music-library-manager
 ./run.sh
 ```
 
@@ -24,10 +48,13 @@ python3 -m venv .venv
 .venv/bin/python -m mlm
 ```
 
-### Standalone .app
+`./run.sh --rescan` re-scans the folders you scanned before, then opens the app. The `Open Music Library.command`
+file does that when double-clicked (edit the folder in it if you cloned somewhere other than `~/MLMDA`).
+
+### Build the app yourself
 
 ```bash
-./build_mac.sh        # → dist/Music Library Manager.app
+./build_mac.sh   # → dist/Music Library Manager.app, a .dmg and a .zip (plus checksums)
 ```
 
 ## Using it
@@ -223,7 +250,7 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 139 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 140 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
 input validation, conversion to every output format (metadata, artwork, CBR/VBR, batch, cancel, integrity,
@@ -267,4 +294,6 @@ tests/
   songs are skipped.
 * OGG output uses FFmpeg's experimental Vorbis encoder (stereo only). Opus is the better choice.
 * The player plays one file at a time; there's no gapless playback or crossfade.
-* The `.app` built by PyInstaller is unsigned. On first launch, right-click it and choose **Open**.
+* The app is unsigned and not notarised (needs a paid Apple developer account), so a downloaded copy needs the
+  one-time unblock step in *Download and install*. Right-click → Open is not enough on recent macOS. Builds are
+  Apple Silicon only.
