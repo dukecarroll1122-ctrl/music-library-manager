@@ -217,6 +217,7 @@ class LibraryPage(Page):
         self.count = W.label("", "muted")
         self.outer.addWidget(W.hbox(self.count, None,
                                     button("▶ Play", self.play),
+                                    button("Add to Playlist…", self.add_to_playlist),
                                     button("Reveal in Finder", self.reveal),
                                     button("Inspect", self.inspect),
                                     button("Convert…", self.convert, tip="Send selected songs to the Audio Converter"),
@@ -304,6 +305,10 @@ class LibraryPage(Page):
         rows = self._sel()
         if rows:
             self.app.go("player", rows=rows)
+
+    def add_to_playlist(self):
+        from .pages_playlists import add_to_playlist
+        add_to_playlist(self, self.app, [r["id"] for r in self.table.selected_rows()])
 
     def convert(self):
         rows = self._sel()

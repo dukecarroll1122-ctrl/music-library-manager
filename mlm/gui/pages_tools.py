@@ -581,7 +581,7 @@ class SettingsPage(Page):
             return
         c = self.app.conn
         ids = [x[0] for x in c.execute("SELECT id FROM tracks WHERE root=?", (r,))]
-        for t in ("issues", "suggestions", "mb_matches", "dup_members"):
+        for t in ("issues", "suggestions", "mb_matches", "dup_members", "playlist_tracks"):
             c.executemany(f"DELETE FROM {t} WHERE track_id=?", [(i,) for i in ids])
         c.execute("DELETE FROM tracks WHERE root=?", (r,))
         c.commit()

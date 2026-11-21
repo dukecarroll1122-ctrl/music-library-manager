@@ -63,6 +63,7 @@ file does that when double-clicked (edit the folder in it if you cloned somewher
 |---|---|
 | **Dashboard** | Totals (songs, artists, albums, storage) plus problem counts. Click a problem card to see those songs. Charts show artists, albums, genres, formats and metadata health. |
 | **Music Library** | Every song in a sortable table. Global search, plus filters for artist, album, genre, year, format, problem type, minimum bitrate and sample rate. Select songs and use **Edit Selected…** to batch edit. |
+| **Playlists** | Ordered lists of your songs, kept in the app (music files are never touched). Add songs from **Music Library → Add to Playlist…** or save the player's queue; play, reorder, remove; **Export M3U** for other players or **Import M3U** (entries are matched to songs already in your library; anything else is listed). A song on a disconnected drive stays in the playlist, marked “not found”. |
 | **Metadata Inspector** | Songs with issues, a detail panel with all tags, technical info, the issue list and MusicBrainz results. **Check with MusicBrainz** grades each song as Verified / High-confidence / Possible / Needs manual review / No match. **Verify Audio** fully decodes files with ffmpeg to detect corruption. |
 | **Metadata Repair** | Proposed changes from MusicBrainz and your own edits, shown as BEFORE → AFTER. Approve or reject each one, then **Apply Approved Changes**. The **Repair history** tab lists every batch with **Undo**. |
 | **Artwork Manager** | **Missing Artwork:** one click searches every album and folder without a cover across MusicBrainz / Cover Art Archive, iTunes, Deezer, Discogs and fanart.tv, in a review queue (awaiting approval, several good candidates, matched, no results). **Browse Albums:** open the gallery for any album. The gallery shows candidates with preview, album, artist, year, source, resolution, edition and confidence; preview large, compare two, select, reject, search another source, or import your own image. A separate **Video Game Soundtrack** mode searches by game title, soundtrack title, composer, publisher, region, edition and catalog number. |
@@ -250,7 +251,7 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 140 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 146 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
 input validation, conversion to every output format (metadata, artwork, CBR/VBR, batch, cancel, integrity,

@@ -487,7 +487,8 @@ class PlayerPage(Page):
         self.list.itemDoubleClicked.connect(lambda it: self.play_index(self.list.row(it)))
         rl.addWidget(self.list, 1)
         rl.addWidget(W.hbox(button("Add Files…", self.add_files), button("Remove", self.remove),
-                            button("Clear", self.clear), None, button("Reveal", self.reveal),
+                            button("Clear", self.clear), button("Save as Playlist…", self.save_playlist), None,
+                            button("Reveal", self.reveal),
                             button("Inspect", self.inspect)))
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
@@ -553,6 +554,10 @@ class PlayerPage(Page):
                 self.index -= 1
             self.queue.pop(i)
             self._fill()
+
+    def save_playlist(self):
+        from .pages_playlists import add_to_playlist
+        add_to_playlist(self, self.app, [q["id"] for q in self.queue if q.get("id")])
 
     def clear(self):
         self.stop()

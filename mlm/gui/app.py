@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, db_path=None):
         super().__init__()
-        from . import pages_audio, pages_main, pages_meta, pages_tools
+        from . import pages_audio, pages_main, pages_meta, pages_playlists, pages_tools
         self.db_path = db_path or db.default_db_path()
         self.conn = db.connect(self.db_path)
         self.edit_mode = False  # read-only is the default on every launch
@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         self.nav = QButtonGroup(self)
         specs = [("dashboard", "Dashboard", pages_main.DashboardPage),
                  ("library", "Music Library", pages_main.LibraryPage),
+                 ("playlists", "Playlists", pages_playlists.PlaylistsPage),
                  ("inspector", "Metadata Inspector", pages_meta.InspectorPage),
                  ("repair", "Metadata Repair", pages_meta.RepairPage),
                  ("artwork", "Artwork Manager", pages_tools.ArtworkPage),
@@ -59,7 +60,7 @@ class MainWindow(QMainWindow):
                  ("organize", "Organization", pages_tools.OrganizePage),
                  ("reports", "Reports", pages_tools.ReportsPage),
                  ("settings", "Settings", pages_tools.SettingsPage)]
-        icons = ["◧", "♪", "⌕", "✎", "▣", "⧉", "◉", "▶", "⇄", "⇅", "⎙", "⚙"]
+        icons = ["◧", "♪", "☰", "⌕", "✎", "▣", "⧉", "◉", "▶", "⇄", "⇅", "⎙", "⚙"]
         for i, (key, title, cls) in enumerate(specs):
             b = QPushButton(f"{icons[i]}   {title}")
             b.setObjectName("nav")
