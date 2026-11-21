@@ -9,7 +9,7 @@ confirm. Every write is backed up, logged and undoable.
 
 ## Download and install (easiest)
 
-1. Download **Music-Library-Manager-1.1.0-arm64.dmg** from the
+1. Download **Music-Library-Manager-1.2.0-arm64.dmg** from the
    [Releases page](https://github.com/dukecarroll1122-ctrl/music-library-manager/releases/latest). It is for
    Apple Silicon Macs (M1 or newer). The `.zip` holds the same app.
 2. Open the DMG and drag **Music Library Manager** onto **Applications**.
