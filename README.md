@@ -75,7 +75,7 @@ file does that when double-clicked (edit the folder in it if you cloned somewher
 | **Reports** | Inventory, artists, albums, missing metadata, metadata errors, duplicates and audio quality, as CSV or JSON. |
 | **Settings** | Mode, MusicBrainz contact, AcoustID key, scanned folders (rescan or forget), data folder, cache. |
 
-Shortcuts: ⌘1 … ⌘9 switch pages.
+Shortcuts: ⌘1 … ⌘9 switch pages, ⌘, opens Settings, ⌘F jumps to the page's search box.
 
 ### Scanning SD cards and external drives
 Click **Scan Folder…**. The picker opens at `/Volumes`, where removable drives appear. Scans are recursive and
@@ -251,7 +251,7 @@ Set `MLM_DATA_DIR` to use a different folder.
 .venv/bin/python -m pytest
 ```
 
-There are 146 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
+There are 151 tests. They generate real MP3/FLAC/AAC/Opus/WAV files with ffmpeg and cover: scanning and
 extraction, incremental rescans, disconnected drives, cancelling, issue rules, all three duplicate methods'
 logic, read-only enforcement, tag edits that keep the audio bytes and artwork, artwork replacement and undo,
 input validation, conversion to every output format (metadata, artwork, CBR/VBR, batch, cancel, integrity,

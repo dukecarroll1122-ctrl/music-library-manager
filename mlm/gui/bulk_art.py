@@ -154,7 +154,7 @@ class BulkArtTab(QWidget):
             b.setEnabled(editable or b.isChecked())
             col = CONF_COLOR.get(c["confidence"], W.MUTED)
             b.setStyleSheet(f"QToolButton {{ border: 2px solid transparent; border-radius: 8px; padding: 3px; "
-                            f"font-size: 10.5px; color: {col}; }} QToolButton:checked {{ border-color: {W.GREEN}; "
+                            f"font-size: 12px; color: {col}; }} QToolButton:checked {{ border-color: {W.GREEN}; "
                             f"background: #15301f; }} QToolButton:hover {{ background: #1f232b; }}")
             b.clicked.connect(lambda _=False, jid=j["id"], idx=c["idx"]: self.choose(jid, idx))
             h.addWidget(b)
@@ -202,8 +202,7 @@ class BulkArtTab(QWidget):
     def approve_safe(self):
         n = artfetch.approve_safe(self.app.conn)
         self.reload()
-        W.info(self, "Approved", f"Approved the best official Exact/Strong cover for {n} album(s). Weak, unverified, "
-                                 "fan and promotional results were left for you to review.")
+        self.app.toast(f"Approved the best Exact/Strong cover for {n} album(s) — weaker matches left for your review")
 
     # ---------- search
     def open_selected(self):

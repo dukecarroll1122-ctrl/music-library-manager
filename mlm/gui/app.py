@@ -2,13 +2,13 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QFileDialog, QHBoxLayout, QLabel, QMainWindow,
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QFrame, QLineEdit, QScrollArea, QFileDialog, QHBoxLayout, QLabel, QMainWindow,
                                QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from .. import db, scanner
-from . import widgets as W
+from . import icons, widgets as W
 
 
 class MainWindow(QMainWindow):
@@ -60,14 +60,33 @@ class MainWindow(QMainWindow):
                  ("organize", "Organization", pages_tools.OrganizePage),
                  ("reports", "Reports", pages_tools.ReportsPage),
                  ("settings", "Settings", pages_tools.SettingsPage)]
-        icons = ["◧", "♪", "☰", "⌕", "✎", "▣", "⧉", "◉", "▶", "⇄", "⇅", "⎙", "⚙"]
+        sections = {0: "LIBRARY", 3: "FIX & IMPROVE", 8: "TOOLS"}
+        navbody = QWidget()
+        navbody.setObjectName("navbody")
+        pinned = []
+        nl = QVBoxLayout(navbody)
+        nl.setContentsMargins(0, 0, 0, 0)
+        nl.setSpacing(2)
         for i, (key, title, cls) in enumerate(specs):
-            b = QPushButton(f"{icons[i]}   {title}")
+            if i in sections:
+                nl.addWidget(W.label(sections[i], "navsection"))
+            if key == "settings":  # pinned below the scrolling list so it is always reachable
+                div = QFrame()
+                div.setObjectName("navdivider")
+                pinned.append(div)
+            b = QPushButton("  " + title)
             b.setObjectName("nav")
             b.setCheckable(True)
+            b.setIcon(icons.icon(key if key != "organization" else "organize", W.MUTED, W.TEXT))
+            b.setIconSize(QSize(18, 18))
+            b.setToolTip(title + (f"   ⌘{i + 1}" if i < 9 else ""))
+            b.setAccessibleName(title)
             b.clicked.connect(lambda _=False, k=key: self.go(k))
             self.nav.addButton(b, i)
-            sl.addWidget(b)
+            if key == "settings":
+                pinned.append(b)
+            else:
+                nl.addWidget(b)
             page = cls(self)
             page.setObjectName("page")
             self.pages[key] = page
@@ -77,10 +96,25 @@ class MainWindow(QMainWindow):
                 act.setShortcut(QKeySequence(f"Ctrl+{i + 1}"))
                 act.triggered.connect(lambda _=False, k=key: self.go(k))
                 self.addAction(act)
+        nl.addStretch(1)
+        navscroll = QScrollArea()
+        navscroll.setObjectName("navscroll")
+        navscroll.setWidgetResizable(True)
+        navscroll.setFrameShape(QFrame.NoFrame)
+        navscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        navscroll.setWidget(navbody)
+        sl.addWidget(navscroll, 1)
+        for w_ in pinned:
+            sl.addWidget(w_)
+        for keys, slot in (("Ctrl+,", lambda: self.go("settings")), ("Ctrl+F", self.focus_search)):
+            act = QAction(self)
+            act.setShortcut(QKeySequence(keys))
+            act.triggered.connect(slot)
+            self.addAction(act)
         self.keys = [s[0] for s in specs]
-        sl.addStretch(1)
         self.np = QPushButton("")
         self.np.setObjectName("nav")
+        self.np.setIcon(icons.icon("player", W.GREEN))
         self.np.setToolTip("Now playing — click to open the player")
         self.np.clicked.connect(lambda: self.go("player"))
         self.np.hide()
@@ -90,7 +124,7 @@ class MainWindow(QMainWindow):
         self.mode_btn.clicked.connect(self.toggle_mode)
         sl.addWidget(self.mode_btn)
         self.mode_hint = W.label("", "hint", wrap=True)
-        self.mode_hint.setStyleSheet(f"color: {W.MUTED}; font-size: 11px;")
+        self.mode_hint.setStyleSheet(f"color: {W.MUTED}; font-size: 12px;")
         sl.addWidget(self.mode_hint)
 
         lay.addWidget(side)
@@ -125,9 +159,21 @@ class MainWindow(QMainWindow):
         if kw:
             page.open_with(**kw)
 
+    def focus_search(self):
+        """⌘F: jump to the current page's search box."""
+        page = self.stack.currentWidget()
+        box = getattr(page, "search", None) or page.findChild(QLineEdit)
+        if box is not None:
+            box.setFocus()
+            box.selectAll()
+
+    def toast(self, text, ms=4000):
+        """Non-blocking confirmation in the status bar (disappears by itself)."""
+        self.statusBar().showMessage("✓  " + text, ms)
+
     def now_playing(self, item):
         fm = self.np.fontMetrics()
-        self.np.setText(fm.elidedText(f"▶  {item['title']} — {item['artist'] or '?'}", Qt.ElideRight, 190))
+        self.np.setText(fm.elidedText(f"  {item['title']} — {item['artist'] or '?'}", Qt.ElideRight, 170))
         self.np.show()
 
     def _mark_dirty(self):
@@ -152,12 +198,14 @@ class MainWindow(QMainWindow):
 
     def _update_mode_ui(self):
         if self.edit_mode:
-            self.mode_btn.setText("✎  Edit Mode")
+            self.mode_btn.setText("  Edit Mode")
+            self.mode_btn.setIcon(icons.icon("edit", W.AMBER))
             self.mode_btn.setStyleSheet(f"background: #3a2a12; border: 1px solid {W.AMBER}; color: {W.AMBER}; "
                                         "font-weight: 600; padding: 9px;")
             self.mode_hint.setText("Approved changes can be written to files. Click to return to read-only.")
         else:
-            self.mode_btn.setText("🔒  Read-Only Mode")
+            self.mode_btn.setText("  Read-Only Mode")
+            self.mode_btn.setIcon(icons.icon("lock", W.GREEN))
             self.mode_btn.setStyleSheet(f"background: #12291f; border: 1px solid #1f5a3f; color: {W.GREEN}; "
                                         "font-weight: 600; padding: 9px;")
             self.mode_hint.setText("Files are never modified. Click to enable editing.")
@@ -269,7 +317,7 @@ def apply_theme(app):
                       (QPalette.Text, W.TEXT), (QPalette.WindowText, W.TEXT), (QPalette.Button, "#232731"),
                       (QPalette.ButtonText, W.TEXT), (QPalette.Highlight, "#26375c"),
                       (QPalette.HighlightedText, W.TEXT), (QPalette.ToolTipBase, "#222630"),
-                      (QPalette.ToolTipText, W.TEXT), (QPalette.PlaceholderText, "#5f6672")):
+                      (QPalette.ToolTipText, W.TEXT), (QPalette.PlaceholderText, "#7b8494")):
         pal.setColor(role, QColor(col))
     app.setPalette(pal)
     app.setStyleSheet(W.STYLE)

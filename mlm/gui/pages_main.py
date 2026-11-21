@@ -2,7 +2,7 @@
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QSizePolicy, QMenu, QFrame, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QLineEdit,
                                QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from .. import analysis, repair, tags
@@ -34,6 +34,7 @@ def button(text, slot=None, kind=None, tip=""):
         b.clicked.connect(slot)
     if tip:
         b.setToolTip(tip)
+        b.setAccessibleName(tip)  # icon/glyph-only buttons need a spoken name
     return b
 
 
@@ -49,15 +50,33 @@ class DashboardPage(Page):
         lay.setContentsMargins(0, 0, 8, 0)
         lay.setSpacing(14)
         scroll.setWidget(body)
-        self.outer.addWidget(W.hbox(W.page_header("Dashboard", "An overview of your music collection's size and "
-                                                  "metadata health."), None,
-                                    button("Rescan Library", self.rescan),
-                                    button("Scan Folder…", lambda: app.scan_folder(), "primary")))
+        self.scroll = scroll
+        self.outer.addWidget(W.page_header("Dashboard", "An overview of your music collection's size and metadata "
+                                           "health.", button("Rescan Library", self.rescan),
+                                           button("Scan Folder…", lambda: app.scan_folder(), "primary")))
+        self.welcome = QFrame()
+        self.welcome.setObjectName("card")
+        wl = QVBoxLayout(self.welcome)
+        wl.setContentsMargins(28, 26, 28, 26)
+        wl.setSpacing(10)
+        wl.addWidget(W.label("Welcome — let's find your music", "h1"))
+        wl.addWidget(W.label("Music Library Manager shows what's missing, mislabeled or duplicated in your collection. "
+                             "<b>It never changes a file unless you switch on Edit Mode.</b>", "muted", True))
+        wl.addWidget(W.label("1.  Choose a folder, external drive or SD card with your music.<br>"
+                             "2.  Scanning takes a few minutes for thousands of songs, and you can keep using the app."
+                             "<br>3.  Review the Dashboard, then fix problems in Metadata Repair, Artwork Manager and "
+                             "Duplicate Finder.", None, True))
+        go = button("Choose Music Folder…", lambda: app.scan_folder(), "primary")
+        go.setMinimumHeight(36)
+        wl.addWidget(W.hbox(go, None))
+        self.welcome.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.outer.addWidget(self.welcome)
         self.deps = QLabel()
         self.deps.setWordWrap(True)
         self.deps.setTextFormat(Qt.RichText)
         self.outer.addWidget(self.deps)
         self.outer.addWidget(scroll, 1)
+        self.outer.addStretch(0)  # first run: keeps the welcome card at the top instead of centred
 
         specs = [("songs", "Total songs", W.BLUE, None), ("artists", "Artists", W.VIOLET, None),
                  ("albums", "Albums", "#38bdf8", None), ("size", "Storage used", "#94a3b8", None),
@@ -111,6 +130,8 @@ class DashboardPage(Page):
         self.deps.setText(text)
         self.deps.setVisible(bool(text))
         s = analysis.stats(self.app.conn)
+        self.welcome.setVisible(s["songs"] == 0)  # first run: explain and offer the one action that matters
+        self.scroll.setVisible(s["songs"] > 0)
         n = s["songs"] or 1
         pct = lambda v: f"{v / n:.0%} of songs" if s["songs"] else ""  # noqa: E731
         self.cards["songs"].set(f"{s['songs']:,}", f"{s['offline']:,} offline / not found" if s["offline"] else "")
@@ -174,23 +195,20 @@ TRACK_WIDTHS = [28, 220, 160, 180, 140, 100, 52, 36, 56, 60, 76, 70, 74, 40, 150
 class LibraryPage(Page):
     def __init__(self, app):
         super().__init__(app)
-        self.outer.addWidget(W.hbox(W.page_header("Music Library", "Every scanned song. Search, filter, and "
-                                                  "select songs to inspect or edit."), None,
-                                    button("Scan Folder…", lambda: app.scan_folder(), "primary")))
+        self.outer.addWidget(W.page_header("Music Library", "Every scanned song. Search, filter, and select songs to "
+                                           "inspect or edit.", button("Scan Folder…", lambda: app.scan_folder(),
+                                                                      "primary")))
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search title, artist, album or file path…")
         self.search.setClearButtonEnabled(True)
         self.timer = QTimer(self, singleShot=True, interval=250, timeout=self.reload)
         self.search.textChanged.connect(lambda: self.timer.start())
-        self.outer.addWidget(self.search)
-
         self.filters = {}
         row = []
         for key, ph in (("artist", "All artists"), ("album", "All albums"), ("genre", "All genres"),
                         ("year", "All years"), ("format", "All formats")):
             cb = QComboBox()
             cb.setEditable(key in ("artist", "album"))
-            cb.setMinimumWidth(120 if key not in ("artist", "album") else 170)
             cb.setMaxVisibleItems(25)
             cb.placeholder = ph
             cb.currentTextChanged.connect(lambda _=None: self.timer.start())
@@ -206,25 +224,34 @@ class LibraryPage(Page):
         self.min_br.setSpecialValueText("Any bitrate")
         self.min_br.valueChanged.connect(lambda _: self.timer.start())
         self.rate = QComboBox()
-        self.rate.setMinimumWidth(140)
         self.rate.currentTextChanged.connect(lambda _: self.timer.start())
-        self.outer.addWidget(W.hbox(*row, self.problem, self.min_br, self.rate,
-                                    button("Clear", self.clear_filters), None))
+        self.outer.addWidget(W.hbox(self.search, button("Clear Filters", self.clear_filters)))
+        grid = QGridLayout()  # equal columns: nothing is clipped at the minimum window width
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        for i, wdg in enumerate([*row, self.problem, self.min_br, self.rate]):
+            grid.addWidget(wdg, i // 4, i % 4)
+        for c in range(4):
+            grid.setColumnStretch(c, 1)
+        gw = QWidget()
+        gw.setLayout(grid)
+        self.outer.addWidget(gw)
 
         self.table = W.make_table(TRACK_COLS, TRACK_WIDTHS)
         self.table.doubleClicked.connect(lambda _: self.inspect())
         self.outer.addWidget(self.table, 1)
         self.count = W.label("", "muted")
-        self.outer.addWidget(W.hbox(self.count, None,
-                                    button("▶ Play", self.play),
+        more = button("More")
+        menu = QMenu(more)
+        for text, slot in (("Reveal in Finder", self.reveal), ("Inspect", self.inspect),
+                           ("Convert…", self.convert), ("Convert Albums to MP3…", self.convert_albums)):
+            menu.addAction(text, slot)
+        more.setMenu(menu)
+        self.count.setMinimumWidth(260)
+        self.outer.addWidget(W.hbox(self.count, None, button("Play", self.play, "primary"),
                                     button("Add to Playlist…", self.add_to_playlist),
-                                    button("Reveal in Finder", self.reveal),
-                                    button("Inspect", self.inspect),
-                                    button("Convert…", self.convert, tip="Send selected songs to the Audio Converter"),
-                                    button("Convert Albums to MP3…", self.convert_albums,
-                                           tip="Queue every song of the selected songs' albums as MP3, keeping the "
-                                               "artist/album folder structure"),
-                                    button("Edit Selected…", self.edit, tip="Batch-edit metadata of selected songs")))
+                                    button("Edit Selected…", self.edit, tip="Batch-edit metadata of selected songs"),
+                                    more))
 
     def _fill(self, cb, values):
         cur = cb.currentText()
@@ -241,7 +268,7 @@ class LibraryPage(Page):
             self._fill(self.filters[key], analysis.distinct(c, key))
         years = sorted({y[:4] for y in analysis.distinct(c, "year") if y[:4].isdigit()}, reverse=True)
         self._fill(self.filters["year"], years)
-        self.rate.placeholder = "Any sample rate"
+        self.rate.placeholder = "Any rate"
         self._fill(self.rate, [str(r) for r in analysis.distinct(c, "sample_rate")])
         self.reload()
 
@@ -261,7 +288,12 @@ class LibraryPage(Page):
         self.table.source_model.set_rows(rows)
         size = sum(r["size"] or 0 for r in rows)
         dur = sum(r["duration"] or 0 for r in rows)
-        self.count.setText(f"{len(rows):,} songs · {W.fmt_size(size)} · {W.fmt_dur(dur)}")
+        if rows:
+            self.count.setText(f"{len(rows):,} songs · {W.fmt_size(size)} · {W.fmt_dur(dur)}")
+        else:
+            total = self.app.conn.execute("SELECT count(*) FROM tracks WHERE missing=0").fetchone()[0]
+            self.count.setText("No songs match these filters. Click Clear Filters to see everything." if total else
+                               "No songs yet. Click Scan Folder… to add your music.")
 
     def clear_filters(self):
         for cb in self.filters.values():
@@ -383,6 +415,6 @@ def edit_tracks(parent, app, rows):
             W.error(parent, "Invalid value", str(e))
             continue
         app.library_changed.emit()
-        W.info(parent, "Changes queued", f"{n} change(s) queued for review in Metadata Repair.")
         app.go("repair")
+        app.toast(f"{n} change(s) queued for review — nothing is written until you apply them")
         return

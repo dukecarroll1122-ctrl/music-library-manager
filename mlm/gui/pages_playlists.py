@@ -38,8 +38,8 @@ def add_to_playlist(parent, app, track_ids):
         return
     n = playlists.add_tracks(app.conn, picked[0], track_ids)
     app.pages["playlists"].dirty = True
-    W.info(parent, "Added to playlist", f"Added {n} song(s) to “{picked[1]}”."
-           + (f"\n{len(set(track_ids)) - n} were already in it." if n < len(set(track_ids)) else ""))
+    dup = len(set(track_ids)) - n
+    app.toast(f"Added {n} song(s) to “{picked[1]}”" + (f" ({dup} already there)" if dup else ""))
 
 
 class PlaylistsPage(Page):
@@ -69,7 +69,8 @@ class PlaylistsPage(Page):
         rl.addWidget(self.count)
         rl.addWidget(W.hbox(button("▶ Play", lambda: self.play(selected=False), "primary"),
                             button("Play Selected", lambda: self.play(selected=True)), None,
-                            button("↑", lambda: self.move(-1)), button("↓", lambda: self.move(1)),
+                            button("↑", lambda: self.move(-1), tip="Move up"),
+                            button("↓", lambda: self.move(1), tip="Move down"),
                             button("Remove", self.remove), button("Export M3U…", self.export)))
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)

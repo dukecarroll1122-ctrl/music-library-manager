@@ -681,7 +681,7 @@ class PlayerPage(Page):
 # ================================================================== Audio Verification
 VSTATUS_COLOR = {"Verified match": W.GREEN, "Likely match": "#7bd88f", "Possible mismatch": W.AMBER,
                  "Strong mismatch": W.RED, "No fingerprint match": W.MUTED, "Needs manual review": "#ff8a3d",
-                 "Not verified": "#555b66"}
+                 "Not verified": W.MUTED}
 
 
 class VerifyWorker(QThread):

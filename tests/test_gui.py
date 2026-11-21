@@ -118,3 +118,65 @@ def test_missing_ffmpeg_banner(win, monkeypatch):
     monkeypatch.setattr(scanner, "tool", lambda name: "/x/" + name)
     d.refresh()
     assert not d.deps.isVisibleTo(win)
+
+
+def test_sidebar_groups_icons_and_pinned_settings(win):
+    from PySide6.QtWidgets import QLabel, QPushButton, QScrollArea
+    from mlm.gui import icons
+    labels = [l.text() for l in win.findChildren(QLabel, "navsection")]
+    assert labels == ["LIBRARY", "FIX & IMPROVE", "TOOLS"]
+    navs = [b for b in win.findChildren(QPushButton, "nav") if b.accessibleName()]
+    assert len(navs) == len(win.keys) and all(not b.icon().isNull() for b in navs)
+    assert all(b.accessibleName() and b.toolTip().startswith(b.accessibleName()) for b in navs)
+    scroll = win.findChild(QScrollArea, "navscroll")
+    settings = next(b for b in navs if b.accessibleName() == "Settings")
+    assert not scroll.widget().isAncestorOf(settings)             # Settings stays reachable however small the window
+    assert set(icons.PATHS) >= {"dashboard", "settings", "lock", "edit"}
+
+
+def test_keyboard_shortcuts_and_toast(win):
+    from PySide6.QtGui import QKeySequence
+    keys = {a.shortcut().toString() for a in win.actions()}
+    assert {"Ctrl+1", "Ctrl+9", "Ctrl+,", "Ctrl+F"} <= keys
+    win.go("library")
+    box = win.pages["library"].search
+    calls = []
+    box.setFocus = lambda *a: calls.append("focus")      # an offscreen window is never "active", so record the call
+    win.focus_search()
+    assert calls == ["focus"]
+    win.toast("Added 2 songs", ms=50)
+    assert "Added 2 songs" in win.statusBar().currentMessage()
+
+
+def test_first_run_welcome_and_empty_library_hint(win, library):
+    d = win.pages["dashboard"]
+    win.go("dashboard")
+    d.refresh()
+    assert d.welcome.isVisibleTo(win) and not d.scroll.isVisibleTo(win)
+    lib = win.pages["library"]
+    win.go("library")
+    lib.reload()
+    assert "Scan Folder" in lib.count.text()
+    win.scan_folder(str(library))
+    wait(win)
+    win.go("dashboard")
+    assert not d.welcome.isVisibleTo(win) and d.scroll.isVisibleTo(win)
+    win.go("library")
+    lib.search.setText("zzz-no-such-song")
+    lib.reload()
+    assert "Clear Filters" in lib.count.text()
+
+
+def test_focus_and_pressed_states_exist_in_theme():
+    from mlm.gui import widgets as W
+    for needle in ("QPushButton:focus", "QLineEdit:focus", "QPushButton:pressed", "QTableView::item:hover",
+                   "QPushButton#nav:checked"):
+        assert needle in W.STYLE
+    assert "font-size: 11" not in W.STYLE and "font-size: 10" not in W.STYLE      # nothing below 12 px
+
+
+def test_icon_only_buttons_have_names(win):
+    from PySide6.QtWidgets import QPushButton
+    win.go("playlists")
+    names = {b.accessibleName() for b in win.pages["playlists"].findChildren(QPushButton)}
+    assert {"Move up", "Move down"} <= names

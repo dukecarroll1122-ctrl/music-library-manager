@@ -301,7 +301,7 @@ class SearchDialog(QDialog):
         if self.cand and self.job:
             artfetch.set_status(self.app.conn, [self.job["id"]], artfetch.APPROVED, chosen=self.cand["idx"])
             self.app.library_changed.emit()
-            W.info(self, "Approved", "This cover is approved. Apply it later from Artwork Manager → Missing Artwork.")
+            self.app.toast("Cover approved — apply it from Artwork Manager → Missing Artwork")
             self.accept()
 
     def apply(self):

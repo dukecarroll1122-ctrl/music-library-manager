@@ -21,10 +21,15 @@ STYLE = f"""
 * {{ color: {TEXT}; font-size: 13px; }}
 QMainWindow, QWidget#page, QStackedWidget, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {BG}; }}
 QWidget#sidebar {{ background: {PANEL}; border-right: 1px solid {BORDER}; }}
-QPushButton#nav {{ text-align: left; padding: 9px 14px; border: none; border-radius: 8px; color: {MUTED};
-                   font-size: 13.5px; background: transparent; }}
+QPushButton#nav {{ text-align: left; padding: 6px 12px; border: none; border-left: 3px solid transparent;
+                   border-radius: 8px; color: {MUTED}; font-size: 13.5px; background: transparent; }}
 QPushButton#nav:hover {{ background: #171a1f; color: {TEXT}; }}
-QPushButton#nav:checked {{ background: #1d2330; color: {TEXT}; font-weight: 600; }}
+QPushButton#nav:checked {{ background: #1d2330; color: {TEXT}; font-weight: 600; border-left: 3px solid {ACCENT}; }}
+QPushButton#nav:focus {{ border: 1px solid {ACCENT}; }}
+QLabel#navsection {{ color: {MUTED}; font-size: 12px; font-weight: 700; padding: 12px 12px 3px 12px; }}
+QWidget#navbody, QScrollArea#navscroll, QScrollArea#navscroll > QWidget > QWidget {{ background: transparent; }}
+QScrollArea#navscroll {{ border: none; }}
+QFrame#navdivider {{ background: {BORDER}; max-height: 1px; margin: 8px 12px; }}
 QLabel#h1 {{ font-size: 24px; font-weight: 700; }}
 QLabel#h2 {{ font-size: 15px; font-weight: 600; }}
 QLabel#muted, QLabel#hint {{ color: {MUTED}; }}
@@ -32,9 +37,16 @@ QLabel#appname {{ font-size: 16px; font-weight: 700; }}
 QFrame#card {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; }}
 QPushButton {{ background: #232731; border: 1px solid {BORDER}; border-radius: 7px; padding: 6px 13px; }}
 QPushButton:hover {{ background: #2b303b; }}
+QPushButton:pressed {{ background: #373d4b; }}
+QPushButton:focus {{ border: 1px solid {ACCENT}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus, QTextEdit:focus {{ border: 1px solid {ACCENT}; }}
+QTableView::item:hover, QListWidget::item:hover {{ background: #1c2028; }}
+QCheckBox:focus, QRadioButton:focus {{ color: #ffffff; }}
 QPushButton:disabled {{ color: #555b66; background: #1a1d22; }}
 QPushButton#primary {{ background: {ACCENT}; border: none; color: white; font-weight: 600; }}
 QPushButton#primary:hover {{ background: #6f9bff; }}
+QPushButton#primary:pressed {{ background: #4a78e6; }}
+QPushButton#primary:focus {{ border: 2px solid #ffffff; }}
 QPushButton#danger {{ background: #3a1f24; border: 1px solid #5c2a31; color: #ffb3b6; }}
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit {{ background: #16191e; border: 1px solid {BORDER};
     border-radius: 7px; padding: 5px 8px; selection-background-color: {ACCENT}; }}
@@ -48,7 +60,7 @@ QTabWidget::pane {{ border: none; }}
 QTabBar::tab {{ background: transparent; color: {MUTED}; padding: 8px 16px; border-bottom: 2px solid transparent; }}
 QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; }}
 QProgressBar {{ background: #1a1d22; border: 1px solid {BORDER}; border-radius: 6px; height: 12px;
-    text-align: center; font-size: 11px; }}
+    text-align: center; font-size: 12px; }}
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: 5px; }}
 QStatusBar {{ background: {PANEL}; border-top: 1px solid {BORDER}; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; }}
@@ -108,14 +120,19 @@ def hbox(*widgets, stretch_at=None, margins=(0, 0, 0, 0), spacing=8):
     return w
 
 
-def page_header(title, subtitle=""):
+def page_header(title, subtitle="", *actions):
     w = QWidget()
-    lay = QVBoxLayout(w)
-    lay.setContentsMargins(0, 0, 0, 6)
-    lay.setSpacing(2)
-    lay.addWidget(label(title, "h1"))
+    row = QHBoxLayout(w)
+    row.setContentsMargins(0, 0, 0, 6)
+    text = QVBoxLayout()
+    text.setSpacing(2)
+    text.addWidget(label(title, "h1"))
     if subtitle:
-        lay.addWidget(label(subtitle, "muted", wrap=True))
+        text.addWidget(label(subtitle, "muted", wrap=True))
+    row.addLayout(text, 1)
+    for a in actions:
+        row.addWidget(a, 0, Qt.AlignTop)
+    w.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)  # a header never absorbs spare vertical space
     return w
 
 
@@ -182,7 +199,7 @@ class Card(QFrame):
         self.value.setStyleSheet("font-size: 26px; font-weight: 700;")
         lay.addWidget(self.value)
         self.sub = label(hint, "hint")
-        self.sub.setStyleSheet(f"color: {MUTED}; font-size: 11.5px;")
+        self.sub.setStyleSheet(f"color: {MUTED}; font-size: 12px;")
         lay.addWidget(self.sub)
 
     def set(self, value, sub=None):
