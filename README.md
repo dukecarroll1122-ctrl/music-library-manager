@@ -297,3 +297,12 @@ tests/
 * The app is unsigned and not notarised (needs a paid Apple developer account), so a downloaded copy needs the
   one-time unblock step in *Download and install*. Right-click → Open is not enough on recent macOS. Builds are
   Apple Silicon only.
+
+## License
+
+The project's own code is released under the [MIT License](LICENSE).
+
+It uses open-source libraries under their own licenses: PySide6/Qt (LGPL-3.0), mutagen (GPL-2.0-or-later),
+pykakasi (GPL-3.0-or-later), Pillow (MIT-CMU), certifi (MPL-2.0), and FFmpeg and Chromaprint, which you install
+yourself. The downloadable `.app` bundles the Python libraries above, so redistributing that app also has to
+respect their terms (the full source of this project is in this repository).
